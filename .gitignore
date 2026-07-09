@@ -1,0 +1,55 @@
+# Local user configuration
+config.local.txt
+config.local.js
+.env
+.env.*
+!.env.example
+saou.games.menu/config.local.txt
+saou.games.menu/config.local.js
+
+# Legacy split games config
+games.local.js
+saou.games.menu/games.local.js
+
+# User-provided game artwork
+user-assets/*
+!user-assets/.gitkeep
+saou.games.menu/user-assets/*
+!saou.games.menu/user-assets/.gitkeep
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor files
+.vscode/
+.idea/
+.codex/
+.agents/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.orig
+*.log
+*.patch
+*.diff
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Release archives and accidental local shortcut copies
+*.zip
+*.7z
+*.rar
+*.lnk
+*.url

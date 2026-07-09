@@ -1,0 +1,14 @@
+# Main Games Menu config.
+# Windows paths can use normal backslashes here.
+
+shortcutsDir=C:\Path\To\Game Shortcuts
+startHidden=false
+maxColumns=3
+
+# Format:
+# game=Title|Shortcut|Image|Description|Accent|Id
+#
+# Required: Title, Shortcut, Image
+# Optional: Description, Accent, Id
+
+game=Game|Game.lnk|game.png|GAME DESCRIPTION
