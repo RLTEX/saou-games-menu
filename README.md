@@ -1,6 +1,6 @@
 [English](README.md) | [Русский](README_RU.md)
 # SAO Utils Games Menu
-![SAOU Games Menu Preview](assets/preview.gif)
+![SAOU Games Menu Preview](assets/Preview.gif)
 
 SAO Utils Games Menu is a configurable games launcher widget for SAO Utils 2 /
 NERvGear. It shows an SAO-style animated menu, builds game cards from a user
