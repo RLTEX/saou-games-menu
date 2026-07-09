@@ -1,3 +1,4 @@
+[English](README.md) | [Русский](README_RU.md)
 # SAO Utils Games Menu
 
 SAO Utils Games Menu is a configurable games launcher widget for SAO Utils 2 /
