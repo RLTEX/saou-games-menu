@@ -1,6 +1,7 @@
 [English](README.md) | [Русский](README_RU.md)
 # SAO Utils Games Menu
 
+![SAOU Games Menu Preview](assets/Preview.gif)
 SAO Utils Games Menu - настраиваемый виджет-лаунчер игр для SAO Utils 2 /
 NERvGear. Он показывает анимированное меню в стиле SAO, строит карточки игр из
 конфига пользователя, запускает ярлыки или URI запуска, а затем закрывается
