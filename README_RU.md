@@ -1,3 +1,4 @@
+[English](README.md) | [Русский](README_RU.md)
 # SAO Utils Games Menu
 
 SAO Utils Games Menu - настраиваемый виджет-лаунчер игр для SAO Utils 2 /
