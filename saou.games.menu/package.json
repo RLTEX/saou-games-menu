@@ -1,0 +1,34 @@
+{
+  "name": "saou.games.menu",
+  "version": "1.0.0",
+  "title": {
+    "en": "Games Menu",
+    "ru": "Games Menu"
+  },
+  "description": {
+    "en": "Animated SAO-style launcher with configurable games.",
+    "ru": "Animated SAO-style launcher with configurable games."
+  },
+  "author": {
+    "name": "SAO Utils Games Menu contributors"
+  },
+  "license": "MIT",
+  "engines": {
+    "qt": "~5",
+    "qt.quick": ">=2.12",
+    "nvg.api": "~1"
+  },
+  "main": "module.qml",
+  "resources": [
+    {
+      "location": "/widget/games-menu",
+      "catalog": "widget",
+      "title": {
+        "en": "Games Menu",
+        "ru": "Games Menu"
+      },
+      "preview": "preview.png",
+      "entry": "qml/Main.qml"
+    }
+  ]
+}
