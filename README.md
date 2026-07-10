@@ -7,18 +7,14 @@ programs through Windows `.lnk` and `.url` shortcuts.
 
 ## Features
 
-- Automatic `.lnk` and `.url` shortcut discovery.
-- Launch games and programs from one SAO-style menu.
-- Custom game tiles and artwork.
-- Custom folders.
-- Custom folder icons, including the system `ALL` folder.
-- Configurable columns globally and per folder.
-- Game names and subtitles through `config.txt`.
-- Automatic stable game IDs.
-- Generated `# IN:` folder hints in `config.txt`.
-- `startHidden` startup behavior.
-- `closeOnLaunch` launch behavior.
-- Reload shortcuts, config, and game artwork without restarting SAO Utils.
+- Customizable SAO-style launcher for games and programs.
+- One menu for launching games and apps through shortcuts.
+- Automatic shortcut discovery and library updates.
+- Custom artwork and styling for game tiles.
+- Custom folders for organizing your library.
+- Custom folder icons.
+- Flexible tile layout and column settings.
+- Quick Reload for applying changes without restarting SAO Utils.
 
 ## Preview
 
