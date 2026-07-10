@@ -30,9 +30,8 @@ T.Widget {
     property bool startHidden: appConfig.startHidden
     property bool closeOnLaunch: appConfig.closeOnLaunch
     property int maxColumns: appConfig.maxColumns
-    property bool syncSubtitle: appConfig.syncSubtitle
     property var configuredFolders: appConfig.folders
-    property var subtitleModel: appConfig.subtitleModel
+    property var itemMetadata: appConfig.itemMetadata
     property var legacyGames: appConfig.legacyGames
     property var discoveredGames: shortcutDiscovery.items
     property string selectedFolderId: "all"
@@ -177,7 +176,7 @@ T.Widget {
         var i
 
         for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i)
-            result.push(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle))
+            result.push(ConfigLoader.withGlobalItemMetadata(widget.discoveredGames[i], widget.itemMetadata))
 
         for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i)
             result.push(widget.legacyGames[i])
@@ -252,7 +251,7 @@ T.Widget {
 
             if (game && !seen[game.id]) {
                 seen[game.id] = true
-                result.push(ConfigLoader.withResolvedSubtitle(game, folderGame, widget.subtitleModel, widget.syncSubtitle))
+                result.push(ConfigLoader.withGlobalItemMetadata(game, widget.itemMetadata))
             }
         }
 

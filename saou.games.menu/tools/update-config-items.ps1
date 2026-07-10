@@ -315,7 +315,6 @@ function Escape-CommentLine {
     return "# Unmigrated v2 ${Reason}: " + $Line.Trim()
 }
 
-
 function Get-FolderDisplayName {
     param(
         [string] $Value
@@ -401,7 +400,6 @@ function Get-FolderHintMap {
 
     return $result
 }
-
 
 function Format-FolderHintLine {
     param(
@@ -700,14 +698,12 @@ function Update-Config {
 
             if (-not $isV3 -and $parts.Length -ge 1) {
                 $oldTitle = $parts[0].Trim()
-                $folderSubtitle = if ($parts.Length -gt 1) { ($parts[1..($parts.Length - 1)] -join "|").Trim() } else { "" }
                 $titleKey = $oldTitle.ToLowerInvariant()
 
                 if ($byTitle.ContainsKey($titleKey) -and $titleCounts[$titleKey] -eq 1) {
                     $item = $byTitle[$titleKey]
                     $linePrefix = $line.Substring(0, $line.IndexOf("game=", [System.StringComparison]::OrdinalIgnoreCase))
-                    $newValue = if ($folderSubtitle) { "game=$($item.id)|$folderSubtitle" } else { "game=$($item.id)" }
-                    $updatedLines.Add($linePrefix + $newValue)
+                    $updatedLines.Add($linePrefix + "game=$($item.id)")
                     $result.configChanged = $true
                 } else {
                     $updatedLines.Add((Escape-CommentLine -Line $line -Reason "folder game"))

@@ -4,7 +4,6 @@ var DEFAULT_CONFIG = {
     startHidden: false,
     closeOnLaunch: true,
     maxColumns: 3,
-    syncSubtitle: true,
     folders: [],
     items: [],
     legacyGames: []
@@ -115,7 +114,6 @@ function parseTextConfig(text, label) {
         startHidden: DEFAULT_CONFIG.startHidden,
         closeOnLaunch: DEFAULT_CONFIG.closeOnLaunch,
         maxColumns: DEFAULT_CONFIG.maxColumns,
-        syncSubtitle: DEFAULT_CONFIG.syncSubtitle,
         folders: [],
         items: [],
         legacyGames: []
@@ -149,8 +147,6 @@ function parseTextConfig(text, label) {
             source.closeOnLaunch = parseBool(value)
         } else if (key === "maxcolumns") {
             source.maxColumns = parseInt(value, 10)
-        } else if (key === "syncsubtitle") {
-            source.syncSubtitle = parseBool(value)
         } else if (key === "folder") {
             currentFolder = parseTextFolder(value)
 
@@ -269,8 +265,7 @@ function parseTextFolderGame(value, configVersion) {
             return null
 
         return {
-            id: id,
-            subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+            id: id
         }
     }
 
@@ -280,8 +275,7 @@ function parseTextFolderGame(value, configVersion) {
         return null
 
     return {
-        baseName: baseName,
-        subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+        baseName: baseName
     }
 }
 
@@ -360,7 +354,6 @@ function normalizeConfig(source, localGames) {
     var configVersion = normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 3)
     var folders = normalizeFolders(source.folders, configVersion)
     var itemMetadata = normalizeItemMetadata(source.items)
-    var syncSubtitle = normalizeBool(source.syncSubtitle, DEFAULT_CONFIG.syncSubtitle)
 
     return {
         configVersion: configVersion,
@@ -368,10 +361,8 @@ function normalizeConfig(source, localGames) {
         startHidden: source.startHidden === true,
         closeOnLaunch: normalizeBool(source.closeOnLaunch, DEFAULT_CONFIG.closeOnLaunch),
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
-        syncSubtitle: syncSubtitle,
         folders: folders,
         itemMetadata: itemMetadata,
-        subtitleModel: buildSubtitleModel(itemMetadata, folders, syncSubtitle),
         legacyGames: legacyGames
     }
 }
@@ -424,13 +415,11 @@ function normalizeFolderGames(games, configVersion) {
         } else if (source && typeof source === "object") {
             if (source.id !== undefined && source.id !== null) {
                 folderGame = {
-                    id: normalizeNumericId(source.id),
-                    subtitle: normalizeString(source.subtitle || source.description, "")
+                    id: normalizeNumericId(source.id)
                 }
             } else {
                 folderGame = {
-                    baseName: normalizeString(source.baseName || source.title, ""),
-                    subtitle: normalizeString(source.subtitle || source.description, "")
+                    baseName: normalizeString(source.baseName || source.title, "")
                 }
             }
         }
@@ -440,16 +429,12 @@ function normalizeFolderGames(games, configVersion) {
 
         if (folderGame.id) {
             result.push({
-                id: folderGame.id,
-                subtitle: folderGame.subtitle,
-                hasSubtitle: folderGame.subtitle !== ""
+                id: folderGame.id
             })
         } else {
             result.push({
                 baseName: folderGame.baseName,
-                baseKey: lookupKey(folderGame.baseName),
-                subtitle: folderGame.subtitle,
-                hasSubtitle: folderGame.subtitle !== ""
+                baseKey: lookupKey(folderGame.baseName)
             })
         }
     }
@@ -499,134 +484,13 @@ function normalizeItemMetadata(items) {
     return result
 }
 
-function buildSubtitleModel(itemMetadata, folders, syncSubtitle) {
-    var result = {}
-    var key
-
-    if (itemMetadata) {
-        for (key in itemMetadata) {
-            if (!itemMetadata.hasOwnProperty(key))
-                continue
-
-            var item = itemMetadata[key]
-            var itemState = ensureSubtitleState(result, key, item && (item.id || item.baseName))
-            var itemSubtitle = normalizeString(item && item.subtitle, "")
-
-            if (!itemState)
-                continue
-
-            itemState.globalSubtitle = itemSubtitle
-
-            if (itemSubtitle)
-                itemState.explicitValues[itemSubtitle] = true
-        }
-    }
-
-    for (var folderIndex = 0; folders && folderIndex < folders.length; ++folderIndex) {
-        var folder = folders[folderIndex]
-
-        for (var gameIndex = 0; folder && folder.games && gameIndex < folder.games.length; ++gameIndex) {
-            var folderGame = folder.games[gameIndex]
-            var folderKey = folderGame && folderGame.id ? normalizeNumericId(folderGame.id) : lookupKey(folderGame && folderGame.baseName)
-            var folderState = ensureSubtitleState(result, folderKey, folderGame && (folderGame.id || folderGame.baseName))
-            var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
-
-            if (!folderState)
-                continue
-
-            if (folderSubtitle)
-                folderState.explicitValues[folderSubtitle] = true
-        }
-    }
-
-    for (key in result) {
-        if (!result.hasOwnProperty(key))
-            continue
-
-        var state = result[key]
-        var values = sortedObjectKeys(state.explicitValues)
-
-        state.syncSubtitle = syncSubtitle === true
-        state.conflicting = values.length > 1
-        state.syncedSubtitle = values.length === 1 ? values[0] : ""
-    }
-
-    return result
-}
-
-function ensureSubtitleState(states, baseKey, baseName) {
-    var key = normalizeNumericId(baseKey)
-
-    if (!key)
-        key = lookupKey(baseKey)
-
-    if (!key)
-        return null
-
-    if (!states[key]) {
-        states[key] = {
-            baseName: normalizeString(baseName, ""),
-            id: normalizeNumericId(baseName),
-            globalSubtitle: "",
-            explicitValues: {},
-            syncedSubtitle: "",
-            conflicting: false,
-            syncSubtitle: true
-        }
-    }
-
-    if (!states[key].baseName)
-        states[key].baseName = normalizeString(baseName, "")
-
-    return states[key]
-}
-
-function sortedObjectKeys(object) {
-    var result = []
-
-    for (var key in object) {
-        if (object.hasOwnProperty(key))
-            result.push(key)
-    }
-
-    result.sort()
-    return result
-}
-
-function resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle) {
+function withGlobalItemMetadata(game, itemMetadata) {
     if (!game || game.sourceKind !== "shortcut")
-        return normalizeString(game && game.subtitle, "")
-
-    var idKey = normalizeNumericId(game.id)
-    var state = subtitleModel && subtitleModel[idKey] ? subtitleModel[idKey] : null
-    var globalSubtitle = normalizeString(state && state.globalSubtitle, "")
-    var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
-
-    if (syncSubtitle !== true) {
-        if (folderGame)
-            return folderSubtitle
-
-        return globalSubtitle
-    }
-
-    if (state && !state.conflicting && state.syncedSubtitle)
-        return state.syncedSubtitle
-
-    if (folderGame) {
-        if (folderSubtitle)
-            return folderSubtitle
-
-        return globalSubtitle
-    }
-
-    return globalSubtitle
-}
-
-function withResolvedSubtitle(game, folderGame, subtitleModel, syncSubtitle) {
-    if (!game)
         return game
 
-    var subtitle = resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle)
+    var idKey = normalizeNumericId(game.id)
+    var item = itemMetadata && itemMetadata[idKey] ? itemMetadata[idKey] : null
+    var subtitle = normalizeString(item && item.subtitle, "")
 
     if (normalizeString(game.subtitle, "") === subtitle)
         return game
