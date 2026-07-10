@@ -402,6 +402,23 @@ function Get-FolderHintMap {
     return $result
 }
 
+
+function Format-FolderHintLine {
+    param(
+        [string] $Line,
+        [string] $Hint
+    )
+
+    $targetColumn = 40
+    $comment = "# IN: " + $Hint
+
+    if ($Line.Length -lt $targetColumn) {
+        return $Line + (" " * ($targetColumn - $Line.Length)) + $comment
+    }
+
+    return $Line + "  " + $comment
+}
+
 function Update-FolderHints {
     param(
         [object] $Lines
@@ -433,7 +450,7 @@ function Update-FolderHints {
             $hint = ($hintMap[$idKey].ToArray() -join ", ")
         }
 
-        $updatedLine = if ($hint) { $baseLine + "    # IN: " + $hint } else { $baseLine }
+        $updatedLine = if ($hint) { Format-FolderHintLine -Line $baseLine -Hint $hint } else { $baseLine }
 
         if ($line -ne $updatedLine) {
             $Lines[$i] = $updatedLine
