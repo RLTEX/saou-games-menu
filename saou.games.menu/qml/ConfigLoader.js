@@ -135,7 +135,7 @@ function parseTextConfig(text, label) {
         }
 
         var key = trim(line.slice(0, separator)).toLowerCase()
-        var value = trim(line.slice(separator + 1))
+        var value = stripGeneratedFolderHint(trim(line.slice(separator + 1)))
 
         if (key === "configversion") {
             source.configVersion = parseInt(value, 10)
@@ -178,6 +178,10 @@ function parseTextConfig(text, label) {
     }
 
     return source
+}
+
+function stripGeneratedFolderHint(value) {
+    return String(value || "").replace(/\s+#\s*IN\s*:\s*.*$/i, "")
 }
 
 function parseTextFolder(value) {
