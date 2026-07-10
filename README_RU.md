@@ -34,10 +34,9 @@ Windows-ярлыки `.lnk` и `.url`.
 ## Установка
 
 1. Скачай release ZIP.
-2. Распакуй папку `saou.games.menu`.
-3. Скопируй `saou.games.menu` в папку пакетов SAO Utils 2 / NERvGear.
-4. Помести `.lnk` или `.url` файлы в уже включённую папку `saou.games.menu/shortcuts/`.
-5. Один раз настрой действие закрытия:
+2. Распакуй папку `Packages` из архива в директорию приложения SAO Utils 2 / NERvGear.
+3. Помести `.lnk` или `.url` файлы в уже включённую папку `Packages/saou.games.menu/shortcuts/`.
+4. Один раз настрой действие закрытия:
 
 ```text
 ПКМ по Games Menu
@@ -48,7 +47,7 @@ Windows-ярлыки `.lnk` и `.url`.
 -> OK
 ```
 
-6. Открой Games Menu.
+5. Открой Games Menu.
 
 Если SAO Utils уже был запущен во время установки, перезапусти его один раз.
 
@@ -69,6 +68,8 @@ shortcuts/SnowRunner.url
 user-assets/SnowRunner.png
 ```
 
+Имя PNG должно совпадать с именем ярлыка без `.lnk` или `.url`.
+
 Рекомендуется: `1200 × 900 px`, соотношение сторон `4:3`, PNG.
 
 ### Иконки Папок
@@ -84,6 +85,9 @@ saou.games.menu/folder-icons/<folderId>.png
 ```text
 saou.games.menu/folder-icons/all.png
 ```
+
+Имя PNG должно совпадать с ID папки. Например, для `folder=racing|RACING`
+используется `folder-icons/racing.png`.
 
 Рекомендуется: `512 × 512 px`, прозрачный PNG. Иконка должна занимать большую
 часть холста без больших пустых полей.
