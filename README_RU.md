@@ -344,6 +344,9 @@ folder-icons/all.png
 Если файла нет, пробует `folder-icons/default.png`. Если default PNG тоже нет,
 sidebar использует минимальный QML fallback.
 
+После замены существующей иконки папки перезапусти SAO Utils, если меню всё ещё
+показывает старое изображение.
+
 ## Настройки
 
 - `configVersion=3` - включает stable numeric ID model.
