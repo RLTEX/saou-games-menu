@@ -236,6 +236,12 @@ For custom game artwork, put a PNG in:
 saou.games.menu/user-assets/
 ```
 
+Recommended game artwork:
+
+- 1200 × 900 px
+- aspect ratio 4:3
+- PNG recommended
+
 The PNG name still matches the current shortcut basename:
 
 ```text
@@ -306,6 +312,12 @@ Optional folder icons live in:
 ```text
 saou.games.menu/folder-icons/
 ```
+
+Recommended folder icons:
+
+- 512 × 512 px
+- transparent PNG
+- the icon should occupy most of the canvas without large empty margins
 
 For:
 
