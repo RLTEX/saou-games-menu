@@ -81,13 +81,14 @@ bug requires a researched fix.
 - A shortcut rename with the same launch key preserves the numeric ID.
 - The current shortcut basename controls the current game title.
 - Global item metadata references numeric ID:
-  `item=<ID>|<Title>|<GlobalSubtitle>`.
+  `item=<ID>|<Game Name>|<Game Subtitle>`.
 - Folder membership references numeric ID:
-  `game=<ID>` or `game=<ID>|<FolderSubtitle>`.
+  `game=<ID>`.
 - Title is stored globally once per ID. Folder entries do not store title.
 - Folder cards inherit title from the global item / current discovered shortcut
   for the same ID.
-- `syncSubtitle` resolution uses numeric ID, not basename.
+- Subtitle is stored globally once per ID. Folder entries do not store subtitle.
+- The same global subtitle is shown in `ALL` and every folder for that game.
 - Artwork still matches the current basename:
   `user-assets/<CurrentShortcutBaseName>.png`.
 - Do not reintroduce basename as folder/config identity.
@@ -96,7 +97,7 @@ bug requires a researched fix.
 - Auto-add may only create or update global v3 `item=<ID>|<Title>|...` lines
   after a fresh matching discovery result.
 - Updating title after a rename must preserve the existing global subtitle and
-  must not change folder membership or folder subtitles.
+  must not change folder membership.
 - v2 basename config was experimental. Controlled v2-to-v3 migration may run
   only when current discovery maps a basename unambiguously to one numeric ID.
   Ambiguous v2 lines must remain as explicit unmigrated comments with warnings;
@@ -206,10 +207,9 @@ For v1.1.0 discovery, folders, and stable IDs, also verify:
 - Main.qml and GameCard.qml must not parse the config file format. They should
   receive only normalized config and discovery objects.
 - Prefer text config v3:
-  `configVersion=3`, optional `shortcutsDir=...`, `syncSubtitle=true|false`,
+  `configVersion=3`, optional `shortcutsDir=...`,
   `folder=<folderId>|<displayName>|<maxColumns>`, nested `game=<ID>` lines,
-  optional nested `game=<ID>|<FolderSubtitle>` lines, and optional global
-  `item=<ID>|<Title>|<GlobalSubtitle>` metadata lines.
+  and optional global `item=<ID>|<Game Name>|<Game Subtitle>` metadata lines.
 - Newly auto-added v3 item stubs should use
   `item=<ID>|<CurrentShortcutBaseName>|Game Subtitle`; the literal
   `Game Subtitle` is a user hint and must normalize to an empty subtitle until
@@ -223,8 +223,7 @@ For v1.1.0 discovery, folders, and stable IDs, also verify:
   `user-assets/<CurrentShortcutBaseName>.png`. Do not load images from the
   shortcut directory; that fallback behaved inconsistently in SAO Utils.
 - Auto-discovered cards should have an empty subtitle unless matching v3
-  `item=` metadata, folder-specific metadata, or `syncSubtitle` inheritance
-  provides one at runtime.
+  global `item=` metadata provides one at runtime.
 - `GameCard` image cache should stay disabled for user artwork refresh;
   replacing `user-assets/<CurrentShortcutBaseName>.png` should be picked up
   after reopening Games Menu or pressing Reload.
@@ -256,21 +255,12 @@ For v1.1.0 discovery, folders, and stable IDs, also verify:
   logs a warning for duplicate IDs, and the last explicit entry wins.
 - All discovery success, error, malformed-result timeout, config-update failure,
   and timeout paths must release the refresh busy state.
-- `syncSubtitle` defaults to `true`. With `syncSubtitle=true`, collect explicit
-  non-empty subtitles by numeric ID from global
-  `item=<ID>|<Title>|<GlobalSubtitle>` and folder
-  `game=<ID>|<FolderSubtitle>`. If there is exactly one unique explicit subtitle
-  for an ID, show it in `ALL` and every folder occurrence without writing
-  inherited values back to config. If there are multiple different explicit
-  subtitles, treat them as intentional: `ALL` uses the global subtitle or empty,
-  a folder occurrence with explicit subtitle uses its own value, and a folder
-  occurrence without explicit subtitle uses the global subtitle or empty.
-- With `syncSubtitle=false`, do not inherit subtitles between `ALL` and folders:
-  `ALL` uses only global `item=` metadata, each folder occurrence uses only its
-  own `game=<ID>|<FolderSubtitle>` value, and empty values remain empty.
+- Folder-specific subtitles are not part of the current config model. For
+  legacy configs, `game=<ID>|<text>` may be accepted as `game=<ID>`, but the old
+  folder-specific text must be ignored.
 - Subtitle resolution must stay deterministic and centralized outside
-  `Repeater`/`GameCard` bindings. Do not choose folder subtitles by first render,
-  selected folder history, directory order, or object iteration order.
+  `Repeater`/`GameCard` bindings. Use only global `item=` metadata for
+  auto-discovered shortcut subtitles.
 - `description` is the preferred option name for bottom card text. `subtitle`
   remains supported as a legacy alias. On hover, the bottom description should
   be replaced by `LAUNCH  >`.
@@ -284,6 +274,17 @@ For v1.1.0 discovery, folders, and stable IDs, also verify:
   launch-failed state, rounded cards, hover animation, hover border, bottom hover
   line, Windows shortcut launch flow, URI launch flow, and configured close
   action after launch.
+
+## Git Workflow
+
+- After completing and validating a requested task, create one focused commit
+  automatically.
+- Use a short descriptive commit message in English.
+- One logical task = one commit.
+- Do not combine unrelated changes in one commit.
+- Do not push automatically.
+- Do not merge branches automatically.
+- Release commits are created only when explicitly requested.
 
 ## Privacy And Release Hygiene
 
