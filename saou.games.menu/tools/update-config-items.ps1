@@ -224,8 +224,16 @@ function Parse-ConfigLine {
 
     return [PSCustomObject]@{
         key = $trimmed.Substring(0, $separator).Trim().ToLowerInvariant()
-        value = $trimmed.Substring($separator + 1).Trim()
+        value = Remove-GeneratedFolderHint -Value $trimmed.Substring($separator + 1).Trim()
     }
+}
+
+function Remove-GeneratedFolderHint {
+    param(
+        [string] $Value
+    )
+
+    return ([string] $Value) -replace "\s+#\s*IN\s*:\s*.*$", ""
 }
 
 function Parse-ConfigVersion {
@@ -305,6 +313,135 @@ function Escape-CommentLine {
     )
 
     return "# Unmigrated v2 ${Reason}: " + $Line.Trim()
+}
+
+
+function Get-FolderDisplayName {
+    param(
+        [string] $Value
+    )
+
+    $parts = Split-ConfigValue -Value $Value
+
+    if ($parts.Length -lt 1) {
+        return $null
+    }
+
+    $folderId = $parts[0].Trim().ToLowerInvariant()
+
+    if (-not $folderId -or $folderId -eq "all") {
+        return $null
+    }
+
+    $displayParts = @()
+
+    if ($parts.Length -gt 1) {
+        $displayParts = @($parts[1..($parts.Length - 1)])
+    }
+
+    if ($displayParts.Count -gt 1) {
+        $lastPart = $displayParts[$displayParts.Count - 1].Trim()
+        $parsedMaxColumns = 0
+
+        if ([int]::TryParse($lastPart, [ref] $parsedMaxColumns) -and $parsedMaxColumns -gt 0 -and ([string] $parsedMaxColumns) -eq $lastPart) {
+            $displayParts = @($displayParts[0..($displayParts.Count - 2)])
+        }
+    }
+
+    $displayName = ($displayParts -join "|").Trim()
+
+    if (-not $displayName) {
+        $displayName = $folderId.ToUpperInvariant()
+    }
+
+    return $displayName
+}
+
+function Get-FolderHintMap {
+    param(
+        [object] $Lines
+    )
+
+    $result = @{}
+    $currentFolderName = ""
+
+    foreach ($line in @($Lines.ToArray())) {
+        $parsed = Parse-ConfigLine -Line $line
+
+        if (-not $parsed) {
+            continue
+        }
+
+        if ($parsed.key -eq "folder") {
+            $currentFolderName = [string] (Get-FolderDisplayName -Value $parsed.value)
+            continue
+        }
+
+        if ($parsed.key -ne "game" -or -not $currentFolderName) {
+            continue
+        }
+
+        $parts = Split-ConfigValue -Value $parsed.value
+        $id = 0
+
+        if ($parts.Length -lt 1 -or -not [int]::TryParse($parts[0].Trim(), [ref] $id)) {
+            continue
+        }
+
+        $idKey = [string] $id
+
+        if (-not $result.ContainsKey($idKey)) {
+            $result[$idKey] = New-Object "System.Collections.Generic.List[string]"
+        }
+
+        if (-not $result[$idKey].Contains($currentFolderName)) {
+            $result[$idKey].Add($currentFolderName)
+        }
+    }
+
+    return $result
+}
+
+function Update-FolderHints {
+    param(
+        [object] $Lines
+    )
+
+    $changed = $false
+    $hintMap = Get-FolderHintMap -Lines $Lines
+
+    for ($i = 0; $i -lt $Lines.Count; ++$i) {
+        $line = [string] $Lines[$i]
+        $parsed = Parse-ConfigLine -Line $line
+
+        if (-not $parsed -or $parsed.key -ne "item") {
+            continue
+        }
+
+        $parts = Split-ConfigValue -Value $parsed.value
+        $id = 0
+
+        if ($parts.Length -lt 1 -or -not [int]::TryParse($parts[0].Trim(), [ref] $id)) {
+            continue
+        }
+
+        $baseLine = (Remove-GeneratedFolderHint -Value $line).TrimEnd()
+        $idKey = [string] $id
+        $hint = ""
+
+        if ($hintMap.ContainsKey($idKey) -and $hintMap[$idKey].Count -gt 0) {
+            $hint = ($hintMap[$idKey].ToArray() -join ", ")
+        }
+
+        $updatedLine = if ($hint) { $baseLine + "    # IN: " + $hint } else { $baseLine }
+
+        if ($line -ne $updatedLine) {
+            $Lines[$i] = $updatedLine
+            $changed = $true
+        }
+    }
+
+    return $changed
 }
 
 function Rename-ShortcutForTitle {
@@ -680,6 +817,10 @@ function Update-Config {
             Add-Range -Target $updatedLines -Values $newItemLines.ToArray()
         }
 
+        $result.configChanged = $true
+    }
+
+    if (Update-FolderHints -Lines $updatedLines) {
         $result.configChanged = $true
     }
 
