@@ -188,7 +188,7 @@ T.Widget {
         var result = [{
             id: "all",
             displayName: "ALL",
-            icon: "folder-icons/default.png",
+            icon: "folder-icons/all.png",
             fallbackIcon: "folder-icons/default.png",
             system: true
         }]

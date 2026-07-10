@@ -331,6 +331,12 @@ Games Menu looks for:
 folder-icons/racing.png
 ```
 
+For the system `ALL` folder, Games Menu looks for:
+
+```text
+folder-icons/all.png
+```
+
 If that file is missing, it tries `folder-icons/default.png`. If no default PNG
 is present, the sidebar uses a minimal QML fallback icon.
 
