@@ -7,8 +7,11 @@ Item {
     property string selectedFolderId: "all"
     property real hoverZoom: 1.015
     property string fallbackIcon: "folder-icons/default.png"
+    property bool refreshRunning: false
 
     signal folderSelected(string folderId)
+    signal openShortcutsRequested()
+    signal reloadRequested()
 
     function resolveImage(path) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -40,6 +43,8 @@ Item {
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.top: parent.top
+        anchors.bottom: toolRow.top
+        anchors.bottomMargin: 10
         spacing: 8
 
         Repeater {
@@ -158,6 +163,115 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     enabled: !!folderButton.folder
                     onClicked: sidebar.folderSelected(folderButton.folder.id)
+                }
+            }
+        }
+    }
+
+    Row {
+        id: toolRow
+
+        anchors.left: parent.left
+        anchors.leftMargin: 10
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 2
+        height: 28
+        spacing: 8
+
+        Rectangle {
+            id: openShortcutsButton
+
+            width: 28
+            height: 28
+            radius: 6
+            color: openShortcutsMouse.containsMouse ? "#18FFFFFF" : "#08FFFFFF"
+            border.width: openShortcutsMouse.containsMouse ? 1 : 0
+            border.color: "#66DDF6FF"
+
+            Item {
+                anchors.centerIn: parent
+                width: 16
+                height: 13
+
+                Rectangle {
+                    x: 1
+                    y: 5
+                    width: 14
+                    height: 7
+                    radius: 2
+                    color: "#24DDF6FF"
+                    border.width: 1
+                    border.color: "#A8DDF6FF"
+                }
+
+                Rectangle {
+                    x: 3
+                    y: 2
+                    width: 7
+                    height: 4
+                    radius: 1
+                    color: "#24DDF6FF"
+                    border.width: 1
+                    border.color: "#A8DDF6FF"
+                }
+            }
+
+            MouseArea {
+                id: openShortcutsMouse
+
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sidebar.openShortcutsRequested()
+            }
+        }
+
+        Rectangle {
+            id: reloadButton
+
+            property bool visualHover: reloadMouse.containsMouse && !sidebar.refreshRunning
+            property bool visualPressed: reloadMouse.pressed && !sidebar.refreshRunning
+
+            width: 28
+            height: 28
+            radius: 6
+            opacity: sidebar.refreshRunning ? 0.45 : 1
+            color: visualPressed ? "#22FFFFFF" : (visualHover ? "#18FFFFFF" : "#08FFFFFF")
+            border.width: visualHover || visualPressed ? 1 : 0
+            border.color: "#66DDF6FF"
+
+            Canvas {
+                anchors.centerIn: parent
+                width: 17
+                height: 17
+
+                onPaint: {
+                    var ctx = getContext("2d")
+                    ctx.clearRect(0, 0, width, height)
+                    ctx.strokeStyle = "#B8F2FDFF"
+                    ctx.fillStyle = "#B8F2FDFF"
+                    ctx.lineWidth = 1.6
+                    ctx.beginPath()
+                    ctx.arc(8.5, 8.5, 5.2, 0.45, 5.1, false)
+                    ctx.stroke()
+                    ctx.beginPath()
+                    ctx.moveTo(12.8, 2.8)
+                    ctx.lineTo(15.4, 3.1)
+                    ctx.lineTo(14.1, 5.5)
+                    ctx.closePath()
+                    ctx.fill()
+                }
+            }
+
+            MouseArea {
+                id: reloadMouse
+
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: sidebar.refreshRunning ? Qt.ArrowCursor : Qt.PointingHandCursor
+                onClicked: {
+                    if (!sidebar.refreshRunning)
+                        sidebar.reloadRequested()
                 }
             }
         }

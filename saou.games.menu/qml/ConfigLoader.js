@@ -1,9 +1,11 @@
 var DEFAULT_CONFIG = {
-    configVersion: 2,
+    configVersion: 3,
     shortcutsDir: "",
     startHidden: false,
     maxColumns: 3,
+    syncSubtitle: true,
     folders: [],
+    items: [],
     legacyGames: []
 }
 
@@ -111,7 +113,9 @@ function parseTextConfig(text, label) {
         shortcutsDir: DEFAULT_CONFIG.shortcutsDir,
         startHidden: DEFAULT_CONFIG.startHidden,
         maxColumns: DEFAULT_CONFIG.maxColumns,
+        syncSubtitle: DEFAULT_CONFIG.syncSubtitle,
         folders: [],
+        items: [],
         legacyGames: []
     }
     var currentFolder = null
@@ -141,6 +145,8 @@ function parseTextConfig(text, label) {
             source.startHidden = parseBool(value)
         } else if (key === "maxcolumns") {
             source.maxColumns = parseInt(value, 10)
+        } else if (key === "syncsubtitle") {
+            source.syncSubtitle = parseBool(value)
         } else if (key === "folder") {
             currentFolder = parseTextFolder(value)
 
@@ -148,9 +154,16 @@ function parseTextConfig(text, label) {
                 source.folders.push(currentFolder)
             else
                 console.log("Games Menu " + label + " skipped folder line " + (i + 1))
+        } else if (key === "item") {
+            var item = parseTextItem(value, source.configVersion)
+
+            if (item)
+                source.items.push(item)
+            else
+                console.log("Games Menu " + label + " skipped item line " + (i + 1))
         } else if (key === "game") {
-            if (currentFolder && value.indexOf("|") < 0) {
-                addFolderGame(currentFolder, value, label, i + 1)
+            if (currentFolder && source.configVersion >= 2) {
+                addFolderGame(currentFolder, value, source.configVersion, label, i + 1)
             } else {
                 var legacyGame = parseTextGame(value)
 
@@ -170,7 +183,20 @@ function parseTextConfig(text, label) {
 function parseTextFolder(value) {
     var parts = String(value || "").split("|")
     var id = normalizeFolderId(parts.length > 0 ? parts[0] : "")
-    var displayName = normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+    var displayParts = parts.length > 1 ? parts.slice(1) : []
+    var maxColumns = 0
+
+    if (displayParts.length > 1) {
+        var lastPart = normalizeString(displayParts[displayParts.length - 1], "")
+        var parsedMaxColumns = parseInt(lastPart, 10)
+
+        if (!isNaN(parsedMaxColumns) && parsedMaxColumns > 0 && String(parsedMaxColumns) === lastPart) {
+            maxColumns = parsedMaxColumns
+            displayParts = displayParts.slice(0, displayParts.length - 1)
+        }
+    }
+
+    var displayName = normalizeString(displayParts.join("|"), "")
 
     if (!id)
         return null
@@ -181,19 +207,74 @@ function parseTextFolder(value) {
     return {
         id: id,
         displayName: displayName,
+        maxColumns: maxColumns,
         games: []
     }
 }
 
-function addFolderGame(folder, value, label, lineNumber) {
-    var basename = normalizeString(value, "")
+function parseTextItem(value, configVersion) {
+    var parts = String(value || "").split("|")
 
-    if (!basename) {
+    if (configVersion >= 3) {
+        var id = normalizeNumericId(parts.length > 0 ? parts[0] : "")
+        var title = normalizeString(parts.length > 1 ? parts[1] : "", "")
+
+        if (!id || !title)
+            return null
+
+        return {
+            id: id,
+            title: title,
+            description: normalizeItemSubtitle(parts.length > 2 ? parts.slice(2).join("|") : "")
+        }
+    }
+
+    var baseName = normalizeString(parts.length > 0 ? parts[0] : "", "")
+
+    if (!baseName)
+        return null
+
+    return {
+        baseName: baseName,
+        description: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+    }
+}
+
+function addFolderGame(folder, value, configVersion, label, lineNumber) {
+    var folderGame = parseTextFolderGame(value, configVersion)
+
+    if (!folderGame) {
         console.log("Games Menu " + label + " skipped folder game line " + lineNumber)
         return
     }
 
-    folder.games.push(basename)
+    folder.games.push(folderGame)
+}
+
+function parseTextFolderGame(value, configVersion) {
+    var parts = String(value || "").split("|")
+
+    if (configVersion >= 3) {
+        var id = normalizeNumericId(parts.length > 0 ? parts[0] : "")
+
+        if (!id)
+            return null
+
+        return {
+            id: id,
+            subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+        }
+    }
+
+    var baseName = normalizeString(parts.length > 0 ? parts[0] : "", "")
+
+    if (!baseName)
+        return null
+
+    return {
+        baseName: baseName,
+        subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+    }
 }
 
 function parseTextGame(value) {
@@ -221,6 +302,16 @@ function parseBool(value) {
     var normalized = trim(value).toLowerCase()
 
     return normalized === "true" || normalized === "1" || normalized === "yes" || normalized === "on"
+}
+
+function normalizeBool(value, fallback) {
+    if (value === undefined || value === null)
+        return fallback
+
+    if (value === true || value === false)
+        return value
+
+    return parseBool(value)
 }
 
 function loadLegacyGames() {
@@ -258,17 +349,25 @@ function normalizeConfig(source, localGames) {
     for (var i = 0; i < addedGames.length; ++i)
         legacyGames.push(addedGames[i])
 
+    var configVersion = normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 3)
+    var folders = normalizeFolders(source.folders, configVersion)
+    var itemMetadata = normalizeItemMetadata(source.items)
+    var syncSubtitle = normalizeBool(source.syncSubtitle, DEFAULT_CONFIG.syncSubtitle)
+
     return {
-        configVersion: normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 2),
+        configVersion: configVersion,
         shortcutsDir: normalizeString(source.shortcutsDir, DEFAULT_CONFIG.shortcutsDir),
         startHidden: source.startHidden === true,
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
-        folders: normalizeFolders(source.folders),
+        syncSubtitle: syncSubtitle,
+        folders: folders,
+        itemMetadata: itemMetadata,
+        subtitleModel: buildSubtitleModel(itemMetadata, folders, syncSubtitle),
         legacyGames: legacyGames
     }
 }
 
-function normalizeFolders(folders) {
+function normalizeFolders(folders, configVersion) {
     var result = []
     var usedIds = {}
 
@@ -291,28 +390,246 @@ function normalizeFolders(folders) {
         result.push({
             id: id,
             displayName: normalizeString(folder.displayName || folder.title || folder.name, id.toUpperCase()),
+            maxColumns: normalizeOptionalMaxColumns(folder.maxColumns),
             icon: "folder-icons/" + id + ".png",
             fallbackIcon: "folder-icons/default.png",
-            games: normalizeFolderGames(folder.games)
+            games: normalizeFolderGames(folder.games, configVersion)
         })
     }
 
     return result
 }
 
-function normalizeFolderGames(games) {
+function normalizeFolderGames(games, configVersion) {
     var result = []
 
     if (!games || typeof games.length !== "number")
         return result
 
     for (var i = 0; i < games.length; ++i) {
-        var basename = normalizeString(games[i], "")
+        var source = games[i]
+        var folderGame = null
 
-        if (basename)
-            result.push(basename)
+        if (typeof source === "string") {
+            folderGame = parseTextFolderGame(source, configVersion)
+        } else if (source && typeof source === "object") {
+            if (source.id !== undefined && source.id !== null) {
+                folderGame = {
+                    id: normalizeNumericId(source.id),
+                    subtitle: normalizeString(source.subtitle || source.description, "")
+                }
+            } else {
+                folderGame = {
+                    baseName: normalizeString(source.baseName || source.title, ""),
+                    subtitle: normalizeString(source.subtitle || source.description, "")
+                }
+            }
+        }
+
+        if (!folderGame || (!folderGame.id && !folderGame.baseName))
+            continue
+
+        if (folderGame.id) {
+            result.push({
+                id: folderGame.id,
+                subtitle: folderGame.subtitle,
+                hasSubtitle: folderGame.subtitle !== ""
+            })
+        } else {
+            result.push({
+                baseName: folderGame.baseName,
+                baseKey: lookupKey(folderGame.baseName),
+                subtitle: folderGame.subtitle,
+                hasSubtitle: folderGame.subtitle !== ""
+            })
+        }
     }
 
+    return result
+}
+
+function normalizeItemMetadata(items) {
+    var result = {}
+
+    if (!items || typeof items.length !== "number")
+        return result
+
+    for (var i = 0; i < items.length; ++i) {
+        var item = items[i]
+
+        if (!item || typeof item !== "object")
+            continue
+
+        var id = normalizeNumericId(item.id)
+
+        if (id) {
+            if (result[id])
+                console.log("Games Menu duplicate item metadata for ID " + id + ": last entry wins")
+
+            result[id] = {
+                id: id,
+                title: normalizeString(item.title || item.name, "GAME " + id),
+                subtitle: normalizeString(item.description || item.subtitle, "")
+            }
+            continue
+        }
+
+        var baseName = normalizeString(item.baseName || item.title, "")
+        var baseKey = lookupKey(baseName)
+
+        if (!baseKey)
+            continue
+
+        result[baseKey] = {
+            baseName: baseName,
+            title: baseName,
+            subtitle: normalizeString(item.description || item.subtitle, "")
+        }
+    }
+
+    return result
+}
+
+function buildSubtitleModel(itemMetadata, folders, syncSubtitle) {
+    var result = {}
+    var key
+
+    if (itemMetadata) {
+        for (key in itemMetadata) {
+            if (!itemMetadata.hasOwnProperty(key))
+                continue
+
+            var item = itemMetadata[key]
+            var itemState = ensureSubtitleState(result, key, item && (item.id || item.baseName))
+            var itemSubtitle = normalizeString(item && item.subtitle, "")
+
+            if (!itemState)
+                continue
+
+            itemState.globalSubtitle = itemSubtitle
+
+            if (itemSubtitle)
+                itemState.explicitValues[itemSubtitle] = true
+        }
+    }
+
+    for (var folderIndex = 0; folders && folderIndex < folders.length; ++folderIndex) {
+        var folder = folders[folderIndex]
+
+        for (var gameIndex = 0; folder && folder.games && gameIndex < folder.games.length; ++gameIndex) {
+            var folderGame = folder.games[gameIndex]
+            var folderKey = folderGame && folderGame.id ? normalizeNumericId(folderGame.id) : lookupKey(folderGame && folderGame.baseName)
+            var folderState = ensureSubtitleState(result, folderKey, folderGame && (folderGame.id || folderGame.baseName))
+            var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
+
+            if (!folderState)
+                continue
+
+            if (folderSubtitle)
+                folderState.explicitValues[folderSubtitle] = true
+        }
+    }
+
+    for (key in result) {
+        if (!result.hasOwnProperty(key))
+            continue
+
+        var state = result[key]
+        var values = sortedObjectKeys(state.explicitValues)
+
+        state.syncSubtitle = syncSubtitle === true
+        state.conflicting = values.length > 1
+        state.syncedSubtitle = values.length === 1 ? values[0] : ""
+    }
+
+    return result
+}
+
+function ensureSubtitleState(states, baseKey, baseName) {
+    var key = normalizeNumericId(baseKey)
+
+    if (!key)
+        key = lookupKey(baseKey)
+
+    if (!key)
+        return null
+
+    if (!states[key]) {
+        states[key] = {
+            baseName: normalizeString(baseName, ""),
+            id: normalizeNumericId(baseName),
+            globalSubtitle: "",
+            explicitValues: {},
+            syncedSubtitle: "",
+            conflicting: false,
+            syncSubtitle: true
+        }
+    }
+
+    if (!states[key].baseName)
+        states[key].baseName = normalizeString(baseName, "")
+
+    return states[key]
+}
+
+function sortedObjectKeys(object) {
+    var result = []
+
+    for (var key in object) {
+        if (object.hasOwnProperty(key))
+            result.push(key)
+    }
+
+    result.sort()
+    return result
+}
+
+function resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle) {
+    if (!game || game.sourceKind !== "shortcut")
+        return normalizeString(game && game.subtitle, "")
+
+    var idKey = normalizeNumericId(game.id)
+    var state = subtitleModel && subtitleModel[idKey] ? subtitleModel[idKey] : null
+    var globalSubtitle = normalizeString(state && state.globalSubtitle, "")
+    var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
+
+    if (syncSubtitle !== true) {
+        if (folderGame)
+            return folderSubtitle
+
+        return globalSubtitle
+    }
+
+    if (state && !state.conflicting && state.syncedSubtitle)
+        return state.syncedSubtitle
+
+    if (folderGame) {
+        if (folderSubtitle)
+            return folderSubtitle
+
+        return globalSubtitle
+    }
+
+    return globalSubtitle
+}
+
+function withResolvedSubtitle(game, folderGame, subtitleModel, syncSubtitle) {
+    if (!game)
+        return game
+
+    var subtitle = resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle)
+
+    if (normalizeString(game.subtitle, "") === subtitle)
+        return game
+
+    var result = {}
+
+    for (var key in game) {
+        if (game.hasOwnProperty(key))
+            result[key] = game[key]
+    }
+
+    result.subtitle = subtitle
     return result
 }
 
@@ -383,6 +700,29 @@ function normalizeInt(value, fallback, min, max) {
     return Math.max(min, Math.min(max, number))
 }
 
+function normalizeOptionalMaxColumns(value) {
+    var number = parseInt(value, 10)
+
+    if (isNaN(number) || number < 1)
+        return 0
+
+    return Math.max(1, Math.min(8, number))
+}
+
+function normalizeNumericId(value) {
+    var text = normalizeString(value, "")
+
+    if (!/^[0-9]+$/.test(text))
+        return ""
+
+    var number = parseInt(text, 10)
+
+    if (isNaN(number) || number < 1)
+        return ""
+
+    return "" + number
+}
+
 function normalizeAccent(value) {
     var accent = normalizeString(value, "")
 
@@ -399,6 +739,15 @@ function normalizeDescription(options) {
         return subtitle
 
     return normalizeString(options && options.description, "")
+}
+
+function normalizeItemSubtitle(value) {
+    var subtitle = normalizeString(value, "")
+
+    if (subtitle === "Game Subtitle")
+        return ""
+
+    return subtitle
 }
 
 function userAssetImagePath(image) {
