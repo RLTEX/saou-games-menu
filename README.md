@@ -7,7 +7,7 @@ programs through Windows `.lnk` and `.url` shortcuts.
 
 ## Features
 
-- Customizable SAO-style launcher for games and programs.
+- Customizable minimalist launcher for games and programs.
 - One menu for launching games and apps through shortcuts.
 - Automatic shortcut discovery and library updates.
 - Custom artwork and styling for game tiles.
