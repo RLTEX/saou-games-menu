@@ -17,7 +17,7 @@ Item {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
 
         if (!value)
-            return "../" + fallbackIcon
+            return Qt.resolvedUrl("../" + fallbackIcon)
 
         if (/^[A-Za-z]:[\/\\]/.test(value))
             return "file:///" + value.replace(/\\/g, "/")
@@ -31,10 +31,10 @@ Item {
         if (value.indexOf("file:") === 0 || value.indexOf("qrc:") === 0 || value.indexOf("http://") === 0 || value.indexOf("https://") === 0)
             return value
 
-        if (value.indexOf("../") === 0)
-            return value
+        if (value.indexOf("../") === 0 || value.indexOf("./") === 0)
+            return Qt.resolvedUrl(value)
 
-        return "../" + value
+        return Qt.resolvedUrl("../" + value)
     }
 
     Column {
@@ -56,8 +56,10 @@ Item {
                 property var folder: sidebar.folders[index]
                 property bool selected: folder && folder.id === sidebar.selectedFolderId
                 property bool hovered: folderMouse.containsMouse
-                property string preferredIcon: sidebar.resolveImage(folder && folder.icon ? folder.icon : sidebar.fallbackIcon)
-                property string currentIcon: preferredIcon
+                property url fallbackIconSource: sidebar.resolveImage(sidebar.fallbackIcon)
+                property url preferredIcon: sidebar.resolveImage(folder && folder.icon ? folder.icon : sidebar.fallbackIcon)
+                property url currentIcon: preferredIcon
+                property bool customIconActive: folder && !folder.system && String(currentIcon) !== String(fallbackIconSource)
 
                 width: folderColumn.width
                 height: 42
@@ -68,6 +70,7 @@ Item {
                 scale: hovered && !selected ? sidebar.hoverZoom : 1
 
                 onPreferredIconChanged: currentIcon = preferredIcon
+                onFolderChanged: currentIcon = preferredIcon
 
                 Behavior on color {
                     ColorAnimation { duration: 110 }
@@ -102,21 +105,24 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 22
-                    height: 22
+                    width: 26
+                    height: 26
 
                     Image {
                         id: folderIcon
 
-                        anchors.fill: parent
+                        anchors.centerIn: parent
+                        width: folderButton.customIconActive ? 40 : parent.width
+                        height: folderButton.customIconActive ? 40 : parent.height
                         source: folderButton.currentIcon
                         fillMode: Image.PreserveAspectFit
                         smooth: true
+                        mipmap: folderButton.customIconActive
                         opacity: status === Image.Ready ? 1 : 0
 
                         onStatusChanged: {
-                            if (status === Image.Error && folderButton.currentIcon !== sidebar.resolveImage(sidebar.fallbackIcon))
-                                folderButton.currentIcon = sidebar.resolveImage(sidebar.fallbackIcon)
+                            if (status === Image.Error && String(folderButton.currentIcon) !== String(folderButton.fallbackIconSource))
+                                folderButton.currentIcon = folderButton.fallbackIconSource
                         }
                     }
 
