@@ -238,26 +238,6 @@ Local ID state is stored in:
 saou.games.menu/state/items.json
 ```
 
-### v2 Migration
-
-The older basename-based `configVersion=2` format was experimental during
-v1.1.0 development. Current configs use `configVersion=3`.
-
-When possible, Games Menu migrates old folder entries to numeric IDs during
-Reload. If an old entry cannot be matched safely, it is left as an unmigrated
-comment.
-
-### Legacy Config Compatibility
-
-The old manual game format is still parsed as a compatibility path:
-
-```text
-game=Title|Shortcut|Image|Description|Accent|Id
-```
-
-For new setups, use shortcuts in `shortcuts/` plus `item=`, `folder=`, and
-`game=` entries.
-
 ### Technical Discovery Notes
 
 Shortcut discovery uses bundled helper scripts from `saou.games.menu/tools/`.
