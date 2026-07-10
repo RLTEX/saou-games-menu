@@ -29,7 +29,9 @@ T.Widget {
     property string shortcutsDir: appConfig.shortcutsDir
     property bool startHidden: appConfig.startHidden
     property int maxColumns: appConfig.maxColumns
+    property bool syncSubtitle: appConfig.syncSubtitle
     property var configuredFolders: appConfig.folders
+    property var subtitleModel: appConfig.subtitleModel
     property var legacyGames: appConfig.legacyGames
     property var discoveredGames: shortcutDiscovery.items
     property string selectedFolderId: "all"
@@ -41,6 +43,10 @@ T.Widget {
     property bool launching: false
     property bool launchFailed: false
     property bool closeActionAfterAnimation: false
+    property bool reloadPending: false
+    property bool initialDiscoveryRequested: false
+    property bool startupVisibilityApplied: false
+    property int startupVisibilityAttempts: 0
     property string launchingTitle: ""
 
     property int gameCount: activeGames && activeGames.length ? activeGames.length : 0
@@ -49,12 +55,24 @@ T.Widget {
     property real cardHeight: Math.max(118, Math.min(widget.cardMaxHeight, Math.round(widget.cardWidth * 0.62)))
 
     function calculateGridColumns() {
-        var configured = Math.max(1, widget.maxColumns)
+        var configured = Math.max(1, maxColumnsForSelectedFolder())
         var count = Math.max(1, widget.gameCount)
         var availableWidth = gameFlickable ? gameFlickable.width : 0
         var byWidth = Math.max(1, Math.floor((availableWidth + widget.cardSpacing) / (widget.cardMinWidth + widget.cardSpacing)))
 
         return Math.max(1, Math.min(configured, count, byWidth))
+    }
+
+    function maxColumnsForSelectedFolder() {
+        if (widget.selectedFolderId !== "all") {
+            var folder = findConfiguredFolder(widget.selectedFolderId)
+            var folderMaxColumns = parseInt(folder && folder.maxColumns, 10)
+
+            if (!isNaN(folderMaxColumns) && folderMaxColumns > 0)
+                return folderMaxColumns
+        }
+
+        return widget.maxColumns
     }
 
     function calculateCardWidth() {
@@ -65,12 +83,100 @@ T.Widget {
         return Math.max(1, Math.floor((availableWidth - spacing) / columns))
     }
 
+    function reloadConfig() {
+        appConfig = ConfigLoader.load()
+    }
+
+    function requestManualReload() {
+        if (reloadPending || shortcutDiscovery.refreshing)
+            return
+
+        reloadPending = true
+        reloadConfig()
+
+        Qt.callLater(function() {
+            reloadPending = false
+            shortcutDiscovery.refresh()
+        })
+    }
+
+    function requestInitialRefresh() {
+        if (initialDiscoveryRequested || shortcutDiscovery.refreshing)
+            return
+
+        initialDiscoveryRequested = true
+        shortcutDiscovery.refresh()
+    }
+
+    function requestStartupVisibility() {
+        if (startupVisibilityApplied)
+            return
+
+        startupVisibilityAttempts = 0
+        startupVisibilityRetry.restart()
+    }
+
+    function startupHostView() {
+        try {
+            return widget.NVG.View.view
+        } catch (error) {
+        }
+
+        return null
+    }
+
+    function tryStartupVisibility() {
+        if (startupVisibilityApplied)
+            return
+
+        if (startHidden) {
+            if (closeActionSource.status) {
+                startupVisibilityApplied = true
+                startupVisibilityRetry.stop()
+                closeActionSource.trigger()
+                return
+            }
+        } else {
+            var hostView = startupHostView()
+
+            if (hostView) {
+                startupVisibilityApplied = true
+                startupVisibilityRetry.stop()
+                hostView.visible = true
+                resetPanel()
+                return
+            }
+        }
+
+        startupVisibilityAttempts += 1
+
+        if (startupVisibilityAttempts < 20)
+            startupVisibilityRetry.restart()
+        else
+            console.log("Games Menu startup visibility could not be applied")
+    }
+
+    function requestOpenShortcutsFolder() {
+        shortcutDiscovery.openShortcutsFolder()
+    }
+
+    function handleDiscoveryRefreshed(result) {
+        if (result && result.configUpdateError)
+            console.log("Games Menu config item update failed: " + result.configUpdateError)
+
+        for (var i = 0; result && result.warnings && i < result.warnings.length; ++i)
+            console.log("Games Menu config update warning: " + result.warnings[i])
+
+        if (result && result.configChanged)
+            reloadConfig()
+    }
+
     function buildAllGames() {
         var result = []
         var i
 
         for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i)
-            result.push(widget.discoveredGames[i])
+            result.push(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle))
 
         for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i)
             result.push(widget.legacyGames[i])
@@ -116,7 +222,7 @@ T.Widget {
 
         for (var i = 0; widget.allGames && i < widget.allGames.length; ++i) {
             var game = widget.allGames[i]
-            var key = ConfigLoader.lookupKey(game && game.baseName ? game.baseName : "")
+            var key = ConfigLoader.normalizeNumericId(game && game.id)
 
             if (key && !lookup[key])
                 lookup[key] = game
@@ -139,12 +245,13 @@ T.Widget {
         var result = []
 
         for (var i = 0; folder.games && i < folder.games.length; ++i) {
-            var key = ConfigLoader.lookupKey(folder.games[i])
+            var folderGame = folder.games[i]
+            var key = ConfigLoader.normalizeNumericId(folderGame && folderGame.id ? folderGame.id : folderGame)
             var game = lookup[key]
 
             if (game && !seen[game.id]) {
                 seen[game.id] = true
-                result.push(game)
+                result.push(ConfigLoader.withResolvedSubtitle(game, folderGame, widget.subtitleModel, widget.syncSubtitle))
             }
         }
 
@@ -170,7 +277,6 @@ T.Widget {
     }
 
     function animateIn() {
-        shortcutDiscovery.refresh()
         resetPanel()
 
         panel.opacity = 0
@@ -305,6 +411,7 @@ T.Widget {
         id: shortcutDiscovery
 
         shortcutsDir: widget.shortcutsDir
+        onRefreshSucceeded: widget.handleDiscoveryRefreshed(result)
     }
 
     menu: Menu {
@@ -331,9 +438,16 @@ T.Widget {
 
     Component.onCompleted: {
         resetPanel()
+        Qt.callLater(widget.requestInitialRefresh)
 
-        if (widget.startHidden)
-            Qt.callLater(widget.requestClose)
+        Qt.callLater(widget.requestStartupVisibility)
+    }
+
+    Timer {
+        id: startupVisibilityRetry
+        interval: 250
+        repeat: false
+        onTriggered: widget.tryStartupVisibility()
     }
 
     Timer {
@@ -545,7 +659,10 @@ T.Widget {
                 folders: widget.folders
                 selectedFolderId: widget.selectedFolderId
                 hoverZoom: widget.hoverZoom
+                refreshRunning: widget.reloadPending || shortcutDiscovery.refreshing
                 onFolderSelected: widget.selectedFolderId = folderId
+                onOpenShortcutsRequested: widget.requestOpenShortcutsFolder()
+                onReloadRequested: widget.requestManualReload()
             }
 
             Rectangle {

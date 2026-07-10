@@ -1,9 +1,10 @@
 # Main Games Menu config.
 # Windows paths can use normal backslashes here.
 
-configVersion=2
+configVersion=3
 startHidden=false
 maxColumns=3
+syncSubtitle=true
 
 # Games Menu scans the included shortcuts/ directory by default.
 # Put .lnk and .url files there; every discovered shortcut appears in ALL.
@@ -18,9 +19,24 @@ maxColumns=3
 # Optional advanced override:
 # shortcutsDir=C:\Path\To\External Game Shortcuts
 
-folder=favorites|FAVORITES
-    game=Game
-    game=SnowRunner
+# Game metadata:
+# item=<ID>|<Title>|<GlobalSubtitle>
+#
+# IDs are assigned automatically from shortcut launch identity and stored in:
+#   state\items.json
+#
+# Folder entries can use:
+# folder=<folderId>|<DisplayName>|<MaxColumns>
+# game=<ID>
+# game=<ID>|<FolderSubtitle>
 
-folder=racing|RACING
-    game=SnowRunner
+# Game metadata:
+item=1|Game|Game Subtitle
+item=2|SnowRunner|OFF-ROAD SIMULATOR
+
+folder=favorites|FAVORITES|4
+    game=1
+    game=2
+
+folder=racing|RACING|2
+    game=2|RACING GAME

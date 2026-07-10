@@ -35,6 +35,12 @@ runtime/*
 saou.games.menu/runtime/*
 !saou.games.menu/runtime/.gitkeep
 
+# Local stable game identity state
+state/*
+!state/.gitkeep
+saou.games.menu/state/*
+!saou.games.menu/state/.gitkeep
+
 # OS files
 .DS_Store
 Thumbs.db

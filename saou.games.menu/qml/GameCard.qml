@@ -9,6 +9,7 @@ Rectangle {
     property string fallbackImage: "../assets/placeholder.png"
     property string preferredImage: resolveImage(game && game.image ? game.image : "", false)
     property string currentImage: preferredImage
+    property string imageReloadKey: game && game.imageReloadKey ? game.imageReloadKey : ""
     property color accentColor: game && game.accent ? game.accent : "#DDF7FF"
     property bool hovered: mouse.containsMouse && card.enabled
 
@@ -45,6 +46,13 @@ Rectangle {
         return "" + gameNumber
     }
 
+    function reloadImageSource() {
+        currentImage = ""
+        Qt.callLater(function() {
+            currentImage = preferredImage
+        })
+    }
+
     radius: 10
     clip: true
     color: "#1AFFFFFF"
@@ -53,7 +61,11 @@ Rectangle {
     scale: hovered ? hoverZoom : 1
 
     onPreferredImageChanged: {
-        currentImage = preferredImage
+        reloadImageSource()
+    }
+
+    onImageReloadKeyChanged: {
+        reloadImageSource()
     }
 
     Behavior on scale {
@@ -70,6 +82,7 @@ Rectangle {
         width: parent.width * (card.hovered ? card.hoverZoom : 1)
         height: parent.height * (card.hovered ? card.hoverZoom : 1)
         source: card.currentImage
+        cache: false
         fillMode: Image.PreserveAspectCrop
         smooth: true
 

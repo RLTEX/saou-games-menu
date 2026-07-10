@@ -33,9 +33,9 @@ behavior with SAO Utils `Show Widget` / `Toggle Widget`.
 ## Known-good Lifecycle Baseline
 
 The v1.0.0 `saou.games.menu/qml/Main.qml` lifecycle and visibility flow was
-confirmed by the user as the known-good baseline. v1.1.0 discovery and folder
-work must stay layered on top of that lifecycle unless a new issue is separately
-reproduced and confirmed.
+confirmed by the user as the known-good baseline. v1.1.0 discovery, folders, and
+stable-ID work must stay layered on top of that lifecycle unless a new issue is
+separately reproduced and confirmed.
 
 Current lifecycle invariants:
 
@@ -46,6 +46,9 @@ Current lifecycle invariants:
 - Closing is based on `NVG.ActionSource`.
 - SAO Utils owns system widget visibility.
 - The close action is called with `closeActionSource.trigger()`.
+- On component startup, `startHidden` performs one startup-only visibility
+  reconcile: `true` hides through `closeActionSource.trigger()`, `false` shows
+  by setting the host view visible once after SAO Utils restores saved state.
 - Do not call `closeActionSource.trigger(widget)` unless official API evidence
   and testing prove a different signature is required.
 - The user must configure `Close Action... -> Widget -> Hide Widget -> Games Menu`.
@@ -61,13 +64,52 @@ Current lifecycle invariants:
   Widget, and Toggle Widget behavior.
 - `ALL` is a system folder and must always show all discovered `.lnk` and `.url`
   files from the effective shortcut directory.
-- User folders are configured by shortcut basename only. Do not store generated
-  discovery entries back into `config.txt`.
 
 Do not add visibility watchdogs, polling, `restoreHostView`,
 `handleHostViewVisibility`, `restoringHostView`, `lastHostViewVisible`, extra
 visibility state machines, or `NVG.View.exposed` hacks unless a new confirmed
 bug requires a researched fix.
+
+## Stable ID Invariants
+
+- Basename is presentation data, not game identity.
+- Each auto-discovered game is identified by a stable numeric ID.
+- Numeric ID maps to a normalized launch key in
+  `saou.games.menu/state/items.json`.
+- The state file is local user state. Keep generated `items.json` ignored by
+  Git and keep `saou.games.menu/state/.gitkeep` tracked.
+- A shortcut rename with the same launch key preserves the numeric ID.
+- The current shortcut basename controls the current game title.
+- Global item metadata references numeric ID:
+  `item=<ID>|<Title>|<GlobalSubtitle>`.
+- Folder membership references numeric ID:
+  `game=<ID>` or `game=<ID>|<FolderSubtitle>`.
+- Title is stored globally once per ID. Folder entries do not store title.
+- Folder cards inherit title from the global item / current discovered shortcut
+  for the same ID.
+- `syncSubtitle` resolution uses numeric ID, not basename.
+- Artwork still matches the current basename:
+  `user-assets/<CurrentShortcutBaseName>.png`.
+- Do not reintroduce basename as folder/config identity.
+- Do not write launch targets, generated launch entries, image paths, or folder
+  memberships back into `config.txt`.
+- Auto-add may only create or update global v3 `item=<ID>|<Title>|...` lines
+  after a fresh matching discovery result.
+- Updating title after a rename must preserve the existing global subtitle and
+  must not change folder membership or folder subtitles.
+- v2 basename config was experimental. Controlled v2-to-v3 migration may run
+  only when current discovery maps a basename unambiguously to one numeric ID.
+  Ambiguous v2 lines must remain as explicit unmigrated comments with warnings;
+  do not fuzzy-match names.
+
+## Reload Button Invariants
+
+- Reload is a momentary action button, not a toggle.
+- Reload visual state must be only idle, hover, pressed, or temporary
+  refresh-running appearance.
+- Reload visual state must not remain permanently active after refresh
+  completes.
+- A visual Reload fix must not trigger discovery architecture rewrites.
 
 ## Regression Checklist
 
@@ -85,21 +127,23 @@ verified in SAO Utils 2:
 9. Verify `Show Widget`.
 10. Verify `Toggle Widget`.
 
-For v1.1.0 discovery and folders, also verify:
+For v1.1.0 discovery, folders, and stable IDs, also verify:
 
 11. Empty included `shortcuts/` does not crash and shows an empty state.
 12. Adding a `.lnk` to included `shortcuts/` makes it appear in `ALL`.
 13. Adding a `.url` to included `shortcuts/` makes it appear in `ALL`.
 14. Removing a shortcut removes it from `ALL`.
-15. `user-assets/<ShortcutBaseName>.png` is used when present.
+15. `user-assets/<CurrentShortcutBaseName>.png` is used when present.
 16. Missing game PNG falls back to `assets/placeholder.png`.
-17. A configured custom folder shows only matching discovered basenames.
+17. A configured custom folder shows discovered games by numeric ID.
 18. Missing custom folder icon falls back to `folder-icons/default.png` or the
     QML fallback icon.
 19. Changing `displayName` does not change icon lookup by `folderId`.
-20. A configured game missing from the effective shortcut directory does not
+20. A configured game ID missing from the effective shortcut directory does not
     crash the widget.
 21. Paths and shortcut basenames containing spaces work.
+22. Renaming a shortcut with the same launch key preserves ID and updates title.
+23. Repeated Reload clicks do not leave the button permanently highlighted.
 
 ## Architecture
 
@@ -115,15 +159,16 @@ For v1.1.0 discovery and folders, also verify:
   click signal.
 - `saou.games.menu/qml/ConfigLoader.js` owns text/legacy JS configuration
   loading, folder registration, limited legacy game registration, defaults,
-  normalization, and fallback values.
+  normalization, ID-based subtitle resolution, and fallback values.
 - `saou.games.menu/qml/ShortcutDiscovery.qml` owns helper-based scanning of the
   included `../shortcuts` package directory, or the optional external
-  `shortcutsDir` override, for `.lnk` and `.url` files and emits normalized
+  `shortcutsDir` override, for `.lnk` and `.url` files. It resolves discovered
+  shortcuts through the stable-ID update helper before exposing normalized
   launcher items.
-- `saou.games.menu/qml/FolderSidebar.qml` owns the folder navigation UI and
-  folder icon fallback display.
+- `saou.games.menu/qml/FolderSidebar.qml` owns the folder navigation UI, folder
+  icon fallback display, open-shortcuts button, and momentary Reload button.
 - `saou.games.menu/config.txt` is the primary user-facing configuration file. It
-  supports normal Windows paths with backslashes and uses `configVersion=2`.
+  supports normal Windows paths with backslashes and uses `configVersion=3`.
   Normal installations should not need `shortcutsDir`.
 - `saou.games.menu/config.local.txt` is the local user configuration and must
   stay ignored by Git.
@@ -138,43 +183,97 @@ For v1.1.0 discovery and folders, also verify:
 - `saou.games.menu/shortcuts/` is the included user-facing shortcut directory
   and must be shipped in release ZIPs. Keep `.gitkeep` tracked, but keep user
   `.lnk` and `.url` contents ignored by Git.
+- `saou.games.menu/state/` is package-local user identity state. Keep
+  `.gitkeep` tracked, but keep generated `items.json` ignored by Git.
+- `saou.games.menu/runtime/` is for generated discovery/cache files. Keep
+  `.gitkeep` tracked and generated cache contents ignored by Git.
 - `saou.games.menu/tools/discover-shortcuts.ps1` is the bundled Windows helper
   used by `ShortcutDiscovery.qml` to enumerate `.lnk` and `.url` files without
-  `Qt.labs.folderlistmodel`.
-- `saou.games.menu/runtime/` is for generated discovery cache files. Keep
-  `.gitkeep` tracked and generated cache contents ignored by Git.
+  `Qt.labs.folderlistmodel`. It must only write discovery results and must not
+  mutate `config.txt` or `state/items.json`.
+- `saou.games.menu/tools/update-config-items.ps1` is the bundled Windows helper
+  used after QML accepts a fresh discovery result whose `requestId` matches the
+  active request. It resolves or creates numeric IDs, persists
+  `state/items.json`, updates global v3 `item=` metadata titles, adds missing
+  global item stubs, and performs controlled v2 migration.
+- `saou.games.menu/tools/run-hidden.vbs` is the bundled hidden-process wrapper.
+  QML launches helpers through `wscript.exe` and this VBS wrapper so
+  `powershell.exe` is hidden and waited for.
 
 ## Rules For Future Changes
 
 - Do not hardcode user games in QML.
 - Main.qml and GameCard.qml must not parse the config file format. They should
   receive only normalized config and discovery objects.
-- Prefer text config v2:
-  `configVersion=2`, optional `shortcutsDir=...`,
-  `folder=<folderId>|<displayName>`, and nested `game=<ShortcutBaseName>` lines.
+- Prefer text config v3:
+  `configVersion=3`, optional `shortcutsDir=...`, `syncSubtitle=true|false`,
+  `folder=<folderId>|<displayName>|<maxColumns>`, nested `game=<ID>` lines,
+  optional nested `game=<ID>|<FolderSubtitle>` lines, and optional global
+  `item=<ID>|<Title>|<GlobalSubtitle>` metadata lines.
+- Newly auto-added v3 item stubs should use
+  `item=<ID>|<CurrentShortcutBaseName>|Game Subtitle`; the literal
+  `Game Subtitle` is a user hint and must normalize to an empty subtitle until
+  the user replaces it.
 - Keep limited legacy text config support for
   `game=Title|Shortcut|Image|Description|Accent|Id` in a clearly separated
   compatibility path.
 - Keep legacy one-line JS registration through
   `addGame(title, shortcut, image, options)`.
 - Auto-discovered game images should resolve to
-  `user-assets/<ShortcutBaseName>.png`. Do not load images from the shortcut
-  directory; that fallback behaved inconsistently in SAO Utils.
-- Auto-discovered games must not be written back to `config.txt`.
+  `user-assets/<CurrentShortcutBaseName>.png`. Do not load images from the
+  shortcut directory; that fallback behaved inconsistently in SAO Utils.
+- Auto-discovered cards should have an empty subtitle unless matching v3
+  `item=` metadata, folder-specific metadata, or `syncSubtitle` inheritance
+  provides one at runtime.
+- `GameCard` image cache should stay disabled for user artwork refresh;
+  replacing `user-assets/<CurrentShortcutBaseName>.png` should be picked up
+  after reopening Games Menu or pressing Reload.
 - If `shortcutsDir` is absent or empty, `ShortcutDiscovery.qml` must use
   `Qt.resolvedUrl("../shortcuts")`, which resolves from the `qml/` component
   directory to the package-level `saou.games.menu/shortcuts/`.
 - Do not require the user to manually create `shortcuts/`; it is part of the
   package structure and must remain present before first launch.
-- If both `.lnk` and `.url` exist with the same basename, keep deterministic
-  behavior, do not crash, and log a warning. Folder membership by basename
-  prefers `.lnk` over `.url`.
 - `ALL` must not be user-configurable or removable from config.
 - User folder icons resolve from `folder-icons/<folderId>.png`; missing icons
   should use `folder-icons/default.png` or the QML fallback.
+- Games Menu performs exactly one initial controlled discovery refresh on
+  component startup. Reopening the widget must not automatically run discovery.
+  Manual Reload in the sidebar is used for later refreshes. Manual Reload must
+  reload `ConfigLoader.load()`, then run the same `shortcutDiscovery.refresh()`
+  flow used by startup. Do not trigger discovery refresh from `animateIn()` or
+  couple refresh to widget visibility lifecycle.
+- Prevent overlapping refresh calls. If a refresh is already running, ignore a
+  second Reload request until the helper result or timeout completes.
+- Discovery result freshness is bounded by `requestId`. QML may only apply a
+  discovery result when `result.requestId` exactly matches the active request.
+  Results from previous requests must not update `ShortcutDiscovery.items`,
+  rebuild models, or trigger config metadata auto-add.
+- Auto-add metadata must use only fresh items from the matching active request.
+  Previous `ShortcutDiscovery.items`, previous `discoveredGames`, previous `ALL`
+  model contents, stale `runtime/discovery.json`, and stale request results must
+  never be used for config auto-add during a new refresh.
+- Duplicate global `item=` metadata is deterministic: parser reads top-to-bottom,
+  logs a warning for duplicate IDs, and the last explicit entry wins.
+- All discovery success, error, malformed-result timeout, config-update failure,
+  and timeout paths must release the refresh busy state.
+- `syncSubtitle` defaults to `true`. With `syncSubtitle=true`, collect explicit
+  non-empty subtitles by numeric ID from global
+  `item=<ID>|<Title>|<GlobalSubtitle>` and folder
+  `game=<ID>|<FolderSubtitle>`. If there is exactly one unique explicit subtitle
+  for an ID, show it in `ALL` and every folder occurrence without writing
+  inherited values back to config. If there are multiple different explicit
+  subtitles, treat them as intentional: `ALL` uses the global subtitle or empty,
+  a folder occurrence with explicit subtitle uses its own value, and a folder
+  occurrence without explicit subtitle uses the global subtitle or empty.
+- With `syncSubtitle=false`, do not inherit subtitles between `ALL` and folders:
+  `ALL` uses only global `item=` metadata, each folder occurrence uses only its
+  own `game=<ID>|<FolderSubtitle>` value, and empty values remain empty.
+- Subtitle resolution must stay deterministic and centralized outside
+  `Repeater`/`GameCard` bindings. Do not choose folder subtitles by first render,
+  selected folder history, directory order, or object iteration order.
 - `description` is the preferred option name for bottom card text. `subtitle`
-  remains supported as a legacy alias. On hover, the bottom description should be
-  replaced by `LAUNCH  >`.
+  remains supported as a legacy alias. On hover, the bottom description should
+  be replaced by `LAUNCH  >`.
 - Keep compatibility with Qt 5, Qt Quick 2.12, Qt Quick Controls 2.12, NERvGear
   API 1.x, and SAO Utils 2.
 - `ShortcutDiscovery.qml` must not use `Qt.labs.folderlistmodel` or
@@ -192,8 +291,8 @@ For v1.1.0 discovery and folders, also verify:
   API keys, OAuth data, service tokens, private keys, or other secrets to the
   repository.
 - Keep `config.local.txt`, legacy local configs, shortcut files, `.url` files,
-  `user-assets/`, `folder-icons/`, and user contents of `shortcuts/` ignored by
-  Git.
+  `user-assets/`, `folder-icons/`, user contents of `shortcuts/`, generated
+  runtime files, and generated `state/items.json` ignored by Git.
 - Source code is MIT licensed, but repository assets and user-supplied artwork
   need separate provenance/permission checks.
 
@@ -217,5 +316,11 @@ playtime counters until that task is explicitly requested.
 - Do not reintroduce `Qt.labs.folderlistmodel` or `FolderListModel` without a
   separately confirmed runtime test in SAO Utils.
 - Current discovery uses `NVG.SystemCall.execute(executable, arguments)` to run
-  the bundled PowerShell helper. The helper writes `runtime/discovery.json`, and
-  QML reads that file with `XMLHttpRequest`; stdout is not required.
+  bundled `tools/run-hidden.vbs` through `wscript.exe`; the VBS wrapper launches
+  PowerShell with hidden window style and waits for it to finish. Discovery
+  writes `runtime/discovery.json`; stable ID/config update writes
+  `runtime/config-update.json`; QML reads those files with `XMLHttpRequest`;
+  stdout is not required.
+- Do not launch `powershell.exe` directly from QML for discovery or config
+  update. Direct console launch can show a PowerShell window before
+  `-WindowStyle Hidden` is applied.
