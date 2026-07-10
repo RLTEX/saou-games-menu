@@ -2,6 +2,7 @@ var DEFAULT_CONFIG = {
     configVersion: 3,
     shortcutsDir: "",
     startHidden: false,
+    closeOnLaunch: true,
     maxColumns: 3,
     syncSubtitle: true,
     folders: [],
@@ -112,6 +113,7 @@ function parseTextConfig(text, label) {
         configVersion: DEFAULT_CONFIG.configVersion,
         shortcutsDir: DEFAULT_CONFIG.shortcutsDir,
         startHidden: DEFAULT_CONFIG.startHidden,
+        closeOnLaunch: DEFAULT_CONFIG.closeOnLaunch,
         maxColumns: DEFAULT_CONFIG.maxColumns,
         syncSubtitle: DEFAULT_CONFIG.syncSubtitle,
         folders: [],
@@ -143,6 +145,8 @@ function parseTextConfig(text, label) {
             source.shortcutsDir = value
         } else if (key === "starthidden") {
             source.startHidden = parseBool(value)
+        } else if (key === "closeonlaunch") {
+            source.closeOnLaunch = parseBool(value)
         } else if (key === "maxcolumns") {
             source.maxColumns = parseInt(value, 10)
         } else if (key === "syncsubtitle") {
@@ -362,6 +366,7 @@ function normalizeConfig(source, localGames) {
         configVersion: configVersion,
         shortcutsDir: normalizeString(source.shortcutsDir, DEFAULT_CONFIG.shortcutsDir),
         startHidden: source.startHidden === true,
+        closeOnLaunch: normalizeBool(source.closeOnLaunch, DEFAULT_CONFIG.closeOnLaunch),
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
         syncSubtitle: syncSubtitle,
         folders: folders,

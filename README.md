@@ -123,6 +123,7 @@ Windows paths can use normal backslashes.
 ```text
 configVersion=3
 startHidden=false
+closeOnLaunch=true
 maxColumns=3
 syncSubtitle=true
 
@@ -356,6 +357,8 @@ is present, the sidebar uses a minimal QML fallback icon.
   or empty for the included `shortcuts/` directory.
 - `startHidden=true` - asks the configured close action to hide Games Menu after
   SAO Utils starts.
+- `closeOnLaunch=true` - closes Games Menu through the configured close action
+  after launching a game. Set `false` to keep it open.
 - `maxColumns` - maximum number of cards in one row. The actual number can be
   lower if the widget is narrow.
 

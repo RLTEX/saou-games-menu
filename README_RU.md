@@ -126,6 +126,7 @@ Windows-пути можно писать с обычными обратными 
 ```text
 configVersion=3
 startHidden=false
+closeOnLaunch=true
 maxColumns=3
 syncSubtitle=true
 
@@ -359,6 +360,8 @@ sidebar использует минимальный QML fallback.
   отсутствующим или пустым для встроенной `shortcuts/`.
 - `startHidden=true` - просит настроенное Close Action скрыть Games Menu после
   запуска SAO Utils.
+- `closeOnLaunch=true` - закрывает Games Menu через настроенное Close Action
+  после запуска игры. Поставь `false`, чтобы меню оставалось открытым.
 - `maxColumns` - максимум карточек в одной строке. Фактическое число может быть
   меньше, если виджет узкий.
 
