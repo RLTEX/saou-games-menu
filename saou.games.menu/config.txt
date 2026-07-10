@@ -5,7 +5,6 @@ configVersion=3
 startHidden=false
 closeOnLaunch=true
 maxColumns=3
-syncSubtitle=true
 
 # Games Menu scans the included shortcuts/ directory by default.
 # Put .lnk and .url files there; every discovered shortcut appears in ALL.
@@ -21,7 +20,7 @@ syncSubtitle=true
 # shortcutsDir=C:\Path\To\External Game Shortcuts
 
 # Game metadata:
-# item=<ID>|<Title>|<GlobalSubtitle>
+# item=<ID>|<Game Name>|<Game Subtitle>
 #
 # IDs are assigned automatically from shortcut launch identity and stored in:
 #   state\items.json
@@ -29,7 +28,6 @@ syncSubtitle=true
 # Folder entries can use:
 # folder=<folderId>|<DisplayName>|<MaxColumns>
 # game=<ID>
-# game=<ID>|<FolderSubtitle>
 
 # Game metadata:
 item=1|Game|Game Subtitle
@@ -40,4 +38,4 @@ folder=favorites|FAVORITES|4
     game=2
 
 folder=racing|RACING|2
-    game=2|RACING GAME
+    game=2
