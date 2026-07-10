@@ -34,10 +34,9 @@ programs through Windows `.lnk` and `.url` shortcuts.
 ## Installation
 
 1. Download the release ZIP.
-2. Extract the `saou.games.menu` folder.
-3. Copy `saou.games.menu` into your SAO Utils 2 / NERvGear packages directory.
-4. Put `.lnk` or `.url` files into the included `saou.games.menu/shortcuts/` folder.
-5. Configure the close action once:
+2. Extract the `Packages` folder from the ZIP into your SAO Utils 2 / NERvGear application directory.
+3. Put `.lnk` or `.url` files into the included `Packages/saou.games.menu/shortcuts/` folder.
+4. Configure the close action once:
 
 ```text
 Right-click Games Menu
@@ -48,7 +47,7 @@ Right-click Games Menu
 -> OK
 ```
 
-6. Open Games Menu.
+5. Open Games Menu.
 
 Restart SAO Utils once after installing the package if it was already running.
 
@@ -69,6 +68,8 @@ shortcuts/SnowRunner.url
 user-assets/SnowRunner.png
 ```
 
+The PNG name must match the shortcut name without `.lnk` or `.url`.
+
 Recommended: `1200 × 900 px`, aspect ratio `4:3`, PNG.
 
 ### Folder Icons
@@ -84,6 +85,9 @@ The system `ALL` folder can use:
 ```text
 saou.games.menu/folder-icons/all.png
 ```
+
+The PNG name must match the folder ID. For example, `folder=racing|RACING`
+uses `folder-icons/racing.png`.
 
 Recommended: `512 × 512 px`, transparent PNG. The icon should fill most of the
 canvas without large empty margins.
