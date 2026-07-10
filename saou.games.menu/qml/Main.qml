@@ -28,6 +28,7 @@ T.Widget {
     property var appConfig: ConfigLoader.load()
     property string shortcutsDir: appConfig.shortcutsDir
     property bool startHidden: appConfig.startHidden
+    property bool closeOnLaunch: appConfig.closeOnLaunch
     property int maxColumns: appConfig.maxColumns
     property bool syncSubtitle: appConfig.syncSubtitle
     property var configuredFolders: appConfig.folders
@@ -404,7 +405,10 @@ T.Widget {
             return
         }
 
-        closeDelay.restart()
+        if (closeOnLaunch)
+            closeDelay.restart()
+        else
+            resetPanel()
     }
 
     ShortcutDiscovery {

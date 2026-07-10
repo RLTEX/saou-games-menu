@@ -3,6 +3,7 @@
 
 configVersion=3
 startHidden=false
+closeOnLaunch=true
 maxColumns=3
 syncSubtitle=true
 
