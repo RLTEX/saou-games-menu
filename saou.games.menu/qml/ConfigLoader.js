@@ -1,9 +1,10 @@
 var DEFAULT_CONFIG = {
-    configVersion: 1,
+    configVersion: 2,
     shortcutsDir: "",
     startHidden: false,
     maxColumns: 3,
-    games: []
+    folders: [],
+    legacyGames: []
 }
 
 var registeredGames = []
@@ -110,8 +111,10 @@ function parseTextConfig(text, label) {
         shortcutsDir: DEFAULT_CONFIG.shortcutsDir,
         startHidden: DEFAULT_CONFIG.startHidden,
         maxColumns: DEFAULT_CONFIG.maxColumns,
-        games: []
+        folders: [],
+        legacyGames: []
     }
+    var currentFolder = null
     var lines = String(text || "").split(/\r?\n/)
 
     for (var i = 0; i < lines.length; ++i) {
@@ -130,25 +133,67 @@ function parseTextConfig(text, label) {
         var key = trim(line.slice(0, separator)).toLowerCase()
         var value = trim(line.slice(separator + 1))
 
-        if (key === "shortcutsdir") {
+        if (key === "configversion") {
+            source.configVersion = parseInt(value, 10)
+        } else if (key === "shortcutsdir") {
             source.shortcutsDir = value
         } else if (key === "starthidden") {
             source.startHidden = parseBool(value)
         } else if (key === "maxcolumns") {
             source.maxColumns = parseInt(value, 10)
-        } else if (key === "game") {
-            var game = parseTextGame(value)
+        } else if (key === "folder") {
+            currentFolder = parseTextFolder(value)
 
-            if (game)
-                source.games.push(game)
+            if (currentFolder)
+                source.folders.push(currentFolder)
             else
-                console.log("Games Menu " + label + " skipped game line " + (i + 1))
+                console.log("Games Menu " + label + " skipped folder line " + (i + 1))
+        } else if (key === "game") {
+            if (currentFolder && value.indexOf("|") < 0) {
+                addFolderGame(currentFolder, value, label, i + 1)
+            } else {
+                var legacyGame = parseTextGame(value)
+
+                if (legacyGame)
+                    source.legacyGames.push(legacyGame)
+                else
+                    console.log("Games Menu " + label + " skipped game line " + (i + 1))
+            }
         } else {
             console.log("Games Menu " + label + " skipped unknown key: " + key)
         }
     }
 
     return source
+}
+
+function parseTextFolder(value) {
+    var parts = String(value || "").split("|")
+    var id = normalizeFolderId(parts.length > 0 ? parts[0] : "")
+    var displayName = normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
+
+    if (!id)
+        return null
+
+    if (!displayName)
+        displayName = id.toUpperCase()
+
+    return {
+        id: id,
+        displayName: displayName,
+        games: []
+    }
+}
+
+function addFolderGame(folder, value, label, lineNumber) {
+    var basename = normalizeString(value, "")
+
+    if (!basename) {
+        console.log("Games Menu " + label + " skipped folder game line " + lineNumber)
+        return
+    }
+
+    folder.games.push(basename)
 }
 
 function parseTextGame(value) {
@@ -207,19 +252,68 @@ function normalizeConfig(source, localGames) {
         source = {}
 
     var usedIds = {}
-    var games = normalizeGames(source.games, usedIds)
+    var legacyGames = normalizeGames(source.legacyGames || source.games, usedIds)
     var addedGames = normalizeGames(localGames, usedIds)
 
     for (var i = 0; i < addedGames.length; ++i)
-        games.push(addedGames[i])
+        legacyGames.push(addedGames[i])
 
     return {
-        configVersion: normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 1),
+        configVersion: normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 2),
         shortcutsDir: normalizeString(source.shortcutsDir, DEFAULT_CONFIG.shortcutsDir),
         startHidden: source.startHidden === true,
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
-        games: games
+        folders: normalizeFolders(source.folders),
+        legacyGames: legacyGames
     }
+}
+
+function normalizeFolders(folders) {
+    var result = []
+    var usedIds = {}
+
+    if (!folders || typeof folders.length !== "number")
+        return result
+
+    for (var i = 0; i < folders.length; ++i) {
+        var folder = folders[i]
+
+        if (!folder || typeof folder !== "object")
+            continue
+
+        var id = normalizeFolderId(folder.id)
+
+        if (!id || id === "all")
+            continue
+
+        id = uniqueId(id, usedIds)
+
+        result.push({
+            id: id,
+            displayName: normalizeString(folder.displayName || folder.title || folder.name, id.toUpperCase()),
+            icon: "folder-icons/" + id + ".png",
+            fallbackIcon: "folder-icons/default.png",
+            games: normalizeFolderGames(folder.games)
+        })
+    }
+
+    return result
+}
+
+function normalizeFolderGames(games) {
+    var result = []
+
+    if (!games || typeof games.length !== "number")
+        return result
+
+    for (var i = 0; i < games.length; ++i) {
+        var basename = normalizeString(games[i], "")
+
+        if (basename)
+            result.push(basename)
+    }
+
+    return result
 }
 
 function normalizeGames(games, usedIds) {
@@ -248,7 +342,6 @@ function normalizeGames(games, usedIds) {
             rawId = title
 
         var id = uniqueId(slugify(rawId, result.length + 1), usedIds)
-
         var image = normalizeString(game.image, "assets/placeholder.png")
 
         if (!hasKnownPathPrefix(image))
@@ -260,7 +353,10 @@ function normalizeGames(games, usedIds) {
             subtitle: normalizeDescription(game),
             shortcut: normalizeString(game.shortcut, ""),
             image: image,
-            accent: normalizeAccent(game.accent)
+            accent: normalizeAccent(game.accent),
+            baseName: title,
+            baseKey: lookupKey(title),
+            sourceKind: "legacy"
         })
     }
 
@@ -324,10 +420,24 @@ function hasKnownPathPrefix(path) {
             || path.indexOf("../") === 0
             || path.indexOf("assets/") === 0
             || path.indexOf("user-assets/") === 0
+            || path.indexOf("folder-icons/") === 0
             || path.indexOf("file:") === 0
             || path.indexOf("qrc:") === 0
             || path.indexOf("http://") === 0
             || path.indexOf("https://") === 0
+}
+
+function normalizeFolderId(value) {
+    var id = normalizeString(value, "").toLowerCase()
+
+    id = id.replace(/[^a-z0-9_-]+/g, "-")
+    id = id.replace(/^-+|-+$/g, "")
+
+    return id
+}
+
+function lookupKey(value) {
+    return normalizeString(value, "").toLowerCase()
 }
 
 function slugify(value, index) {
@@ -337,7 +447,7 @@ function slugify(value, index) {
     slug = slug.replace(/^-+|-+$/g, "")
 
     if (!slug)
-        slug = "game-" + index
+        slug = "item-" + index
 
     return slug
 }
