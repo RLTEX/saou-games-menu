@@ -341,6 +341,9 @@ folder-icons/all.png
 If that file is missing, it tries `folder-icons/default.png`. If no default PNG
 is present, the sidebar uses a minimal QML fallback icon.
 
+After replacing an existing folder icon, restart SAO Utils if the old image is
+still shown.
+
 ## Settings
 
 - `configVersion=3` - enables the stable numeric ID model.
