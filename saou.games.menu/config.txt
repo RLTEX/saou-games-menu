@@ -1,14 +1,26 @@
 # Main Games Menu config.
 # Windows paths can use normal backslashes here.
 
-shortcutsDir=C:\Path\To\Game Shortcuts
+configVersion=2
 startHidden=false
 maxColumns=3
 
-# Format:
-# game=Title|Shortcut|Image|Description|Accent|Id
+# Games Menu scans the included shortcuts/ directory by default.
+# Put .lnk and .url files there; every discovered shortcut appears in ALL.
+# Optional artwork is matched by shortcut basename:
 #
-# Required: Title, Shortcut, Image
-# Optional: Description, Accent, Id
+#   user-assets\<ShortcutBaseName>.png
+#
+# Example:
+#   shortcuts\SnowRunner.url
+#   user-assets\SnowRunner.png
+#
+# Optional advanced override:
+# shortcutsDir=C:\Path\To\External Game Shortcuts
 
-game=Game|Game.lnk|game.png|GAME DESCRIPTION
+folder=favorites|FAVORITES
+    game=Game
+    game=SnowRunner
+
+folder=racing|RACING
+    game=SnowRunner

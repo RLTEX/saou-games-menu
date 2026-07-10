@@ -1,13 +1,13 @@
 {
   "name": "saou.games.menu",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "title": {
     "en": "Games Menu",
     "ru": "Games Menu"
   },
   "description": {
-    "en": "Animated SAO-style launcher with configurable games.",
-    "ru": "Animated SAO-style launcher with configurable games."
+    "en": "Animated SAO-style launcher with shortcut auto discovery and folders.",
+    "ru": "Animated SAO-style launcher with shortcut auto discovery and folders."
   },
   "author": {
     "name": "SAO Utils Games Menu contributors"

@@ -17,6 +17,24 @@ user-assets/*
 saou.games.menu/user-assets/*
 !saou.games.menu/user-assets/.gitkeep
 
+# User-provided folder icons
+folder-icons/*
+!folder-icons/.gitkeep
+saou.games.menu/folder-icons/*
+!saou.games.menu/folder-icons/.gitkeep
+
+# User-provided shortcuts in the included package directory
+shortcuts/*
+!shortcuts/.gitkeep
+saou.games.menu/shortcuts/*
+!saou.games.menu/shortcuts/.gitkeep
+
+# Runtime discovery cache
+runtime/*
+!runtime/.gitkeep
+saou.games.menu/runtime/*
+!saou.games.menu/runtime/.gitkeep
+
 # OS files
 .DS_Store
 Thumbs.db

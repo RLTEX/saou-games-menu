@@ -11,6 +11,8 @@ T.Widget {
     title: qsTr("Games Menu")
     solid: true
     resizable: true
+    implicitWidth: 720
+    implicitHeight: 420
 
     // Visual tuning kept local so users can tweak the widget without touching logic.
     property int cardSpacing: 18
@@ -21,12 +23,19 @@ T.Widget {
     property int failureVisibleDuration: 1700
     property int cardMinWidth: 160
     property int cardMaxHeight: 240
+    property int sidebarWidth: Math.min(138, Math.max(108, Math.floor(widget.width * 0.24)))
 
     property var appConfig: ConfigLoader.load()
     property string shortcutsDir: appConfig.shortcutsDir
     property bool startHidden: appConfig.startHidden
     property int maxColumns: appConfig.maxColumns
-    property var games: appConfig.games
+    property var configuredFolders: appConfig.folders
+    property var legacyGames: appConfig.legacyGames
+    property var discoveredGames: shortcutDiscovery.items
+    property string selectedFolderId: "all"
+    property var allGames: buildAllGames()
+    property var folders: buildFolderList()
+    property var activeGames: selectGamesForFolder()
 
     property bool closing: false
     property bool launching: false
@@ -34,7 +43,7 @@ T.Widget {
     property bool closeActionAfterAnimation: false
     property string launchingTitle: ""
 
-    property int gameCount: games && games.length ? games.length : 0
+    property int gameCount: activeGames && activeGames.length ? activeGames.length : 0
     property int gridColumns: calculateGridColumns()
     property real cardWidth: calculateCardWidth()
     property real cardHeight: Math.max(118, Math.min(widget.cardMaxHeight, Math.round(widget.cardWidth * 0.62)))
@@ -56,6 +65,92 @@ T.Widget {
         return Math.max(1, Math.floor((availableWidth - spacing) / columns))
     }
 
+    function buildAllGames() {
+        var result = []
+        var i
+
+        for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i)
+            result.push(widget.discoveredGames[i])
+
+        for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i)
+            result.push(widget.legacyGames[i])
+
+        return result
+    }
+
+    function buildFolderList() {
+        var result = [{
+            id: "all",
+            displayName: "ALL",
+            icon: "folder-icons/default.png",
+            fallbackIcon: "folder-icons/default.png",
+            system: true
+        }]
+
+        for (var i = 0; widget.configuredFolders && i < widget.configuredFolders.length; ++i)
+            result.push(widget.configuredFolders[i])
+
+        return result
+    }
+
+    function findConfiguredFolder(folderId) {
+        for (var i = 0; widget.configuredFolders && i < widget.configuredFolders.length; ++i) {
+            if (widget.configuredFolders[i].id === folderId)
+                return widget.configuredFolders[i]
+        }
+
+        return null
+    }
+
+    function selectedFolderTitle() {
+        for (var i = 0; widget.folders && i < widget.folders.length; ++i) {
+            if (widget.folders[i].id === widget.selectedFolderId)
+                return widget.folders[i].displayName
+        }
+
+        return "ALL"
+    }
+
+    function buildPreferredGameLookup() {
+        var lookup = {}
+
+        for (var i = 0; widget.allGames && i < widget.allGames.length; ++i) {
+            var game = widget.allGames[i]
+            var key = ConfigLoader.lookupKey(game && game.baseName ? game.baseName : "")
+
+            if (key && !lookup[key])
+                lookup[key] = game
+        }
+
+        return lookup
+    }
+
+    function selectGamesForFolder() {
+        if (widget.selectedFolderId === "all")
+            return widget.allGames
+
+        var folder = findConfiguredFolder(widget.selectedFolderId)
+
+        if (!folder)
+            return widget.allGames
+
+        var lookup = buildPreferredGameLookup()
+        var seen = {}
+        var result = []
+
+        for (var i = 0; folder.games && i < folder.games.length; ++i) {
+            var key = ConfigLoader.lookupKey(folder.games[i])
+            var game = lookup[key]
+
+            if (game && !seen[game.id]) {
+                seen[game.id] = true
+                result.push(game)
+            }
+        }
+
+        return result
+    }
+
     function resetPanel() {
         closeActionAfterAnimation = false
         closeDelay.stop()
@@ -75,6 +170,7 @@ T.Widget {
     }
 
     function animateIn() {
+        shortcutDiscovery.refresh()
         resetPanel()
 
         panel.opacity = 0
@@ -205,6 +301,12 @@ T.Widget {
         closeDelay.restart()
     }
 
+    ShortcutDiscovery {
+        id: shortcutDiscovery
+
+        shortcutsDir: widget.shortcutsDir
+    }
+
     menu: Menu {
         MenuItem {
             text: qsTr("Close Action...")
@@ -327,26 +429,6 @@ T.Widget {
         color: "#EC141922"
         transformOrigin: Item.Left
 
-        Rectangle {
-            x: 0
-            y: parent.height / 2 - 18
-            width: 4
-            height: 36
-            radius: 2
-            color: "#A8DDF6FF"
-        }
-
-        Rectangle {
-            x: 2
-            y: parent.height / 2 - 7
-            width: 14
-            height: 14
-            rotation: 45
-            color: "#5ADDF6FF"
-            border.width: 1
-            border.color: "#96EAF9FF"
-        }
-
         Repeater {
             model: Math.max(1, Math.floor(panel.height / 18))
 
@@ -384,10 +466,11 @@ T.Widget {
                 }
 
                 Text {
-                    text: "SELECT APPLICATION  //  " + (widget.gameCount < 10 ? "0" + widget.gameCount : widget.gameCount)
+                    text: widget.selectedFolderTitle() + "  //  " + (widget.gameCount < 10 ? "0" + widget.gameCount : widget.gameCount)
                     color: "#8ED7E6F0"
                     font.pixelSize: 8
                     font.letterSpacing: 1.0
+                    elide: Text.ElideRight
                 }
             }
         }
@@ -440,8 +523,8 @@ T.Widget {
             }
         }
 
-        Flickable {
-            id: gameFlickable
+        Item {
+            id: contentArea
 
             anchors.left: parent.left
             anchors.right: parent.right
@@ -451,63 +534,97 @@ T.Widget {
             anchors.leftMargin: 17
             anchors.rightMargin: 17
             anchors.bottomMargin: 17
-            clip: true
-            contentWidth: width
-            contentHeight: gameGrid.height
-            boundsBehavior: Flickable.StopAtBounds
-            flickableDirection: Flickable.VerticalFlick
-            interactive: contentHeight > height
 
-            Grid {
-                id: gameGrid
+            FolderSidebar {
+                id: folderSidebar
 
-                width: gameFlickable.width
-                columns: widget.gridColumns
-                spacing: widget.cardSpacing
+                anchors.left: parent.left
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: widget.sidebarWidth
+                folders: widget.folders
+                selectedFolderId: widget.selectedFolderId
+                hoverZoom: widget.hoverZoom
+                onFolderSelected: widget.selectedFolderId = folderId
+            }
 
-                Repeater {
-                    model: widget.gameCount
+            Rectangle {
+                id: sidebarSeparator
 
-                    GameCard {
-                        width: widget.cardWidth
-                        height: widget.cardHeight
-                        game: widget.games[index]
-                        gameNumber: index + 1
-                        hoverZoom: widget.hoverZoom
-                        enabled: !widget.launching && !widget.closing
-                        onLaunchRequested: widget.launchShortcut(game)
+                anchors.left: folderSidebar.right
+                anchors.leftMargin: 12
+                anchors.top: parent.top
+                anchors.bottom: parent.bottom
+                width: 1
+                color: "#18FFFFFF"
+            }
+
+            Flickable {
+                id: gameFlickable
+
+                anchors.left: sidebarSeparator.right
+                anchors.leftMargin: 15
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.top: parent.top
+                clip: true
+                contentWidth: width
+                contentHeight: gameGrid.height
+                boundsBehavior: Flickable.StopAtBounds
+                flickableDirection: Flickable.VerticalFlick
+                interactive: contentHeight > height
+
+                Grid {
+                    id: gameGrid
+
+                    width: gameFlickable.width
+                    columns: widget.gridColumns
+                    spacing: widget.cardSpacing
+
+                    Repeater {
+                        model: widget.gameCount
+
+                        GameCard {
+                            width: widget.cardWidth
+                            height: widget.cardHeight
+                            game: widget.activeGames[index]
+                            gameNumber: index + 1
+                            hoverZoom: widget.hoverZoom
+                            enabled: !widget.launching && !widget.closing
+                            onLaunchRequested: widget.launchShortcut(game)
+                        }
                     }
                 }
-            }
 
-            ScrollBar.vertical: ScrollBar {
-                policy: gameFlickable.contentHeight > gameFlickable.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
-            }
-        }
-
-        Item {
-            anchors.fill: gameFlickable
-            visible: widget.gameCount === 0
-
-            Column {
-                anchors.centerIn: parent
-                spacing: 7
-
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "NO GAMES CONFIGURED"
-                    color: "#E9FFFFFF"
-                    font.pixelSize: 14
-                    font.bold: true
-                    font.letterSpacing: 1.8
+                ScrollBar.vertical: ScrollBar {
+                    policy: gameFlickable.contentHeight > gameFlickable.height ? ScrollBar.AsNeeded : ScrollBar.AlwaysOff
                 }
+            }
 
-                Text {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    text: "ADD GAME IN CONFIG"
-                    color: "#8ED7E6F0"
-                    font.pixelSize: 8
-                    font.letterSpacing: 1.0
+            Item {
+                anchors.fill: gameFlickable
+                visible: widget.gameCount === 0
+
+                Column {
+                    anchors.centerIn: parent
+                    spacing: 7
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: widget.selectedFolderId === "all" ? "NO SHORTCUTS FOUND" : "NO GAMES IN FOLDER"
+                        color: "#E9FFFFFF"
+                        font.pixelSize: 14
+                        font.bold: true
+                        font.letterSpacing: 1.8
+                    }
+
+                    Text {
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: widget.selectedFolderId === "all" ? "ADD .LNK OR .URL FILES TO SHORTCUTSDIR" : "CHECK FOLDER GAME NAMES IN CONFIG"
+                        color: "#8ED7E6F0"
+                        font.pixelSize: 8
+                        font.letterSpacing: 1.0
+                    }
                 }
             }
         }
