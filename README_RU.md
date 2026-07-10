@@ -334,6 +334,12 @@ Games Menu ищет:
 folder-icons/racing.png
 ```
 
+Для системной папки `ALL` Games Menu ищет:
+
+```text
+folder-icons/all.png
+```
+
 Если файла нет, пробует `folder-icons/default.png`. Если default PNG тоже нет,
 sidebar использует минимальный QML fallback.
 
