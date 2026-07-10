@@ -238,8 +238,6 @@ Local ID state is stored in:
 saou.games.menu/state/items.json
 ```
 
-This file is local user state and is ignored by Git.
-
 ### v2 Migration
 
 The older basename-based `configVersion=2` format was experimental during
