@@ -2,8 +2,9 @@ var DEFAULT_CONFIG = {
     configVersion: 3,
     shortcutsDir: "",
     startHidden: false,
-    closeOnLaunch: true,
     maxColumns: 3,
+    syncSubtitle: true,
+    folderIconScale: 1,
     folders: [],
     items: [],
     legacyGames: []
@@ -112,8 +113,9 @@ function parseTextConfig(text, label) {
         configVersion: DEFAULT_CONFIG.configVersion,
         shortcutsDir: DEFAULT_CONFIG.shortcutsDir,
         startHidden: DEFAULT_CONFIG.startHidden,
-        closeOnLaunch: DEFAULT_CONFIG.closeOnLaunch,
         maxColumns: DEFAULT_CONFIG.maxColumns,
+        syncSubtitle: DEFAULT_CONFIG.syncSubtitle,
+        folderIconScale: DEFAULT_CONFIG.folderIconScale,
         folders: [],
         items: [],
         legacyGames: []
@@ -135,7 +137,7 @@ function parseTextConfig(text, label) {
         }
 
         var key = trim(line.slice(0, separator)).toLowerCase()
-        var value = stripGeneratedFolderHint(trim(line.slice(separator + 1)))
+        var value = trim(line.slice(separator + 1))
 
         if (key === "configversion") {
             source.configVersion = parseInt(value, 10)
@@ -143,10 +145,12 @@ function parseTextConfig(text, label) {
             source.shortcutsDir = value
         } else if (key === "starthidden") {
             source.startHidden = parseBool(value)
-        } else if (key === "closeonlaunch") {
-            source.closeOnLaunch = parseBool(value)
         } else if (key === "maxcolumns") {
             source.maxColumns = parseInt(value, 10)
+        } else if (key === "syncsubtitle") {
+            source.syncSubtitle = parseBool(value)
+        } else if (key === "foldericonscale") {
+            source.folderIconScale = parseFloat(value)
         } else if (key === "folder") {
             currentFolder = parseTextFolder(value)
 
@@ -178,10 +182,6 @@ function parseTextConfig(text, label) {
     }
 
     return source
-}
-
-function stripGeneratedFolderHint(value) {
-    return String(value || "").replace(/\s+#\s*IN\s*:\s*.*$/i, "")
 }
 
 function parseTextFolder(value) {
@@ -265,7 +265,8 @@ function parseTextFolderGame(value, configVersion) {
             return null
 
         return {
-            id: id
+            id: id,
+            subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
         }
     }
 
@@ -275,7 +276,8 @@ function parseTextFolderGame(value, configVersion) {
         return null
 
     return {
-        baseName: baseName
+        baseName: baseName,
+        subtitle: normalizeString(parts.length > 1 ? parts.slice(1).join("|") : "", "")
     }
 }
 
@@ -354,15 +356,18 @@ function normalizeConfig(source, localGames) {
     var configVersion = normalizeInt(source.configVersion, DEFAULT_CONFIG.configVersion, 1, 3)
     var folders = normalizeFolders(source.folders, configVersion)
     var itemMetadata = normalizeItemMetadata(source.items)
+    var syncSubtitle = normalizeBool(source.syncSubtitle, DEFAULT_CONFIG.syncSubtitle)
 
     return {
         configVersion: configVersion,
         shortcutsDir: normalizeString(source.shortcutsDir, DEFAULT_CONFIG.shortcutsDir),
         startHidden: source.startHidden === true,
-        closeOnLaunch: normalizeBool(source.closeOnLaunch, DEFAULT_CONFIG.closeOnLaunch),
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
+        syncSubtitle: syncSubtitle,
+        folderIconScale: normalizeReal(source.folderIconScale, DEFAULT_CONFIG.folderIconScale, 0.8, 2),
         folders: folders,
         itemMetadata: itemMetadata,
+        subtitleModel: buildSubtitleModel(itemMetadata, folders, syncSubtitle),
         legacyGames: legacyGames
     }
 }
@@ -415,11 +420,13 @@ function normalizeFolderGames(games, configVersion) {
         } else if (source && typeof source === "object") {
             if (source.id !== undefined && source.id !== null) {
                 folderGame = {
-                    id: normalizeNumericId(source.id)
+                    id: normalizeNumericId(source.id),
+                    subtitle: normalizeString(source.subtitle || source.description, "")
                 }
             } else {
                 folderGame = {
-                    baseName: normalizeString(source.baseName || source.title, "")
+                    baseName: normalizeString(source.baseName || source.title, ""),
+                    subtitle: normalizeString(source.subtitle || source.description, "")
                 }
             }
         }
@@ -429,12 +436,16 @@ function normalizeFolderGames(games, configVersion) {
 
         if (folderGame.id) {
             result.push({
-                id: folderGame.id
+                id: folderGame.id,
+                subtitle: folderGame.subtitle,
+                hasSubtitle: folderGame.subtitle !== ""
             })
         } else {
             result.push({
                 baseName: folderGame.baseName,
-                baseKey: lookupKey(folderGame.baseName)
+                baseKey: lookupKey(folderGame.baseName),
+                subtitle: folderGame.subtitle,
+                hasSubtitle: folderGame.subtitle !== ""
             })
         }
     }
@@ -484,13 +495,134 @@ function normalizeItemMetadata(items) {
     return result
 }
 
-function withGlobalItemMetadata(game, itemMetadata) {
+function buildSubtitleModel(itemMetadata, folders, syncSubtitle) {
+    var result = {}
+    var key
+
+    if (itemMetadata) {
+        for (key in itemMetadata) {
+            if (!itemMetadata.hasOwnProperty(key))
+                continue
+
+            var item = itemMetadata[key]
+            var itemState = ensureSubtitleState(result, key, item && (item.id || item.baseName))
+            var itemSubtitle = normalizeString(item && item.subtitle, "")
+
+            if (!itemState)
+                continue
+
+            itemState.globalSubtitle = itemSubtitle
+
+            if (itemSubtitle)
+                itemState.explicitValues[itemSubtitle] = true
+        }
+    }
+
+    for (var folderIndex = 0; folders && folderIndex < folders.length; ++folderIndex) {
+        var folder = folders[folderIndex]
+
+        for (var gameIndex = 0; folder && folder.games && gameIndex < folder.games.length; ++gameIndex) {
+            var folderGame = folder.games[gameIndex]
+            var folderKey = folderGame && folderGame.id ? normalizeNumericId(folderGame.id) : lookupKey(folderGame && folderGame.baseName)
+            var folderState = ensureSubtitleState(result, folderKey, folderGame && (folderGame.id || folderGame.baseName))
+            var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
+
+            if (!folderState)
+                continue
+
+            if (folderSubtitle)
+                folderState.explicitValues[folderSubtitle] = true
+        }
+    }
+
+    for (key in result) {
+        if (!result.hasOwnProperty(key))
+            continue
+
+        var state = result[key]
+        var values = sortedObjectKeys(state.explicitValues)
+
+        state.syncSubtitle = syncSubtitle === true
+        state.conflicting = values.length > 1
+        state.syncedSubtitle = values.length === 1 ? values[0] : ""
+    }
+
+    return result
+}
+
+function ensureSubtitleState(states, baseKey, baseName) {
+    var key = normalizeNumericId(baseKey)
+
+    if (!key)
+        key = lookupKey(baseKey)
+
+    if (!key)
+        return null
+
+    if (!states[key]) {
+        states[key] = {
+            baseName: normalizeString(baseName, ""),
+            id: normalizeNumericId(baseName),
+            globalSubtitle: "",
+            explicitValues: {},
+            syncedSubtitle: "",
+            conflicting: false,
+            syncSubtitle: true
+        }
+    }
+
+    if (!states[key].baseName)
+        states[key].baseName = normalizeString(baseName, "")
+
+    return states[key]
+}
+
+function sortedObjectKeys(object) {
+    var result = []
+
+    for (var key in object) {
+        if (object.hasOwnProperty(key))
+            result.push(key)
+    }
+
+    result.sort()
+    return result
+}
+
+function resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle) {
     if (!game || game.sourceKind !== "shortcut")
-        return game
+        return normalizeString(game && game.subtitle, "")
 
     var idKey = normalizeNumericId(game.id)
-    var item = itemMetadata && itemMetadata[idKey] ? itemMetadata[idKey] : null
-    var subtitle = normalizeString(item && item.subtitle, "")
+    var state = subtitleModel && subtitleModel[idKey] ? subtitleModel[idKey] : null
+    var globalSubtitle = normalizeString(state && state.globalSubtitle, "")
+    var folderSubtitle = normalizeString(folderGame && folderGame.subtitle, "")
+
+    if (syncSubtitle !== true) {
+        if (folderGame)
+            return folderSubtitle
+
+        return globalSubtitle
+    }
+
+    if (state && !state.conflicting && state.syncedSubtitle)
+        return state.syncedSubtitle
+
+    if (folderGame) {
+        if (folderSubtitle)
+            return folderSubtitle
+
+        return globalSubtitle
+    }
+
+    return globalSubtitle
+}
+
+function withResolvedSubtitle(game, folderGame, subtitleModel, syncSubtitle) {
+    if (!game)
+        return game
+
+    var subtitle = resolvedSubtitleForGame(game, folderGame, subtitleModel, syncSubtitle)
 
     if (normalizeString(game.subtitle, "") === subtitle)
         return game
@@ -533,15 +665,17 @@ function normalizeGames(games, usedIds) {
 
         var id = uniqueId(slugify(rawId, result.length + 1), usedIds)
         var image = normalizeString(game.image, "assets/placeholder.png")
+        var shortcut = normalizeString(game.shortcut, "")
 
         if (!hasKnownPathPrefix(image))
             image = userAssetImagePath(image)
 
         result.push({
             id: id,
+            cardId: legacyCardId(shortcut),
             title: title,
             subtitle: normalizeDescription(game),
-            shortcut: normalizeString(game.shortcut, ""),
+            shortcut: shortcut,
             image: image,
             accent: normalizeAccent(game.accent),
             baseName: title,
@@ -551,6 +685,12 @@ function normalizeGames(games, usedIds) {
     }
 
     return result
+}
+
+function legacyCardId(shortcut) {
+    var launchKey = normalizeString(shortcut, "").replace(/\\/g, "/").toLowerCase()
+
+    return "legacy:" + encodeURIComponent(launchKey)
 }
 
 function normalizeString(value, fallback) {
@@ -571,6 +711,16 @@ function normalizeInt(value, fallback, min, max) {
         return fallback
 
     return Math.max(min, Math.min(max, number))
+}
+
+function normalizeReal(value, fallback, min, max) {
+    var number = Number(value)
+
+    if (!isFinite(number))
+        return fallback
+
+    number = Math.max(min, Math.min(max, number))
+    return Math.round(number * 20) / 20
 }
 
 function normalizeOptionalMaxColumns(value) {

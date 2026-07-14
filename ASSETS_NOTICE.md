@@ -13,6 +13,9 @@ User-supplied artwork placed in `saou.games.menu/user-assets/` is the
 responsibility of the user who adds or distributes it. Do not publish artwork
 unless you have the right to do so.
 
+Third-party interface icons and their license notices are documented in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
+
 The origins and redistribution permissions for these repository image assets
 should be manually verified before a public release:
 
