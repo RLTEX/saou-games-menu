@@ -42,12 +42,22 @@ T.Widget {
     property bool closing: false
     property bool launching: false
     property bool launchFailed: false
+    property bool editMode: false
     property bool closeActionAfterAnimation: false
     property bool reloadPending: false
     property bool initialDiscoveryRequested: false
     property bool startupVisibilityApplied: false
     property int startupVisibilityAttempts: 0
     property string launchingTitle: ""
+    property string editorCardId: ""
+    property bool cardEditorOpen: false
+    property bool cardEditorSaving: false
+    property string cardEditorSaveError: ""
+    property string editorAutomaticTitle: ""
+    property string editorAutomaticImage: ""
+    property string editorImageDraft: ""
+    property string editorPreviewSource: ""
+    property string editorPreviewFallback: ""
 
     property int gameCount: activeGames && activeGames.length ? activeGames.length : 0
     property int gridColumns: calculateGridColumns()
@@ -158,6 +168,185 @@ T.Widget {
 
     function requestOpenShortcutsFolder() {
         shortcutDiscovery.openShortcutsFolder()
+    }
+
+    function toggleEditMode() {
+        if (closing || launching)
+            return
+
+        editMode = !editMode
+        editorCardId = ""
+    }
+
+    function openCardEditor(cardId) {
+        var normalizedCardId = ConfigLoader.normalizeString(cardId, "")
+
+        if (!editMode || cardEditorOpen || cardEditorSaving || !normalizedCardId)
+            return
+
+        var game = findGameByCardId(normalizedCardId)
+
+        if (!game)
+            return
+
+        var userData = getCardUserData(normalizedCardId)
+        editorCardId = normalizedCardId
+        editorAutomaticTitle = ConfigLoader.normalizeString(game.automaticTitle, ConfigLoader.normalizeString(game.title, "GAME"))
+        editorAutomaticImage = ConfigLoader.normalizeString(game.automaticImage, ConfigLoader.normalizeString(game.image, "assets/placeholder.png"))
+        editorImageDraft = userData.customImage
+        editorImagePathField.text = userData.customImage
+        editorTitleField.text = userData.customTitle
+        editorDescriptionField.text = userData.description
+        cardEditorSaveError = ""
+        refreshEditorPreview()
+        cardEditorOpen = true
+        editorTitleField.forceActiveFocus()
+    }
+
+    function findGameByCardId(cardId) {
+        for (var i = 0; allGames && i < allGames.length; ++i) {
+            var game = allGames[i]
+
+            if (cardIdForGame(game) === cardId)
+                return game
+        }
+
+        return null
+    }
+
+    function trimEditorText(value) {
+        return String(value === undefined || value === null ? "" : value).replace(/^\s+|\s+$/g, "")
+    }
+
+    function resolveEditorImage(path) {
+        var value = trimEditorText(path)
+
+        if (!value)
+            return "../assets/placeholder.png"
+
+        if (/^[A-Za-z]:[\/\\]/.test(value))
+            return "file:///" + value.replace(/\\/g, "/")
+
+        if (value.indexOf("\\\\") === 0)
+            return "file:" + value.replace(/\\/g, "/")
+
+        if (value.indexOf("/") === 0)
+            return "file://" + value
+
+        if (value.indexOf("file:") === 0 || value.indexOf("qrc:") === 0 || value.indexOf("http://") === 0 || value.indexOf("https://") === 0 || value.indexOf("../") === 0)
+            return value
+
+        return "../" + value
+    }
+
+    function refreshEditorPreview() {
+        var automatic = resolveEditorImage(editorAutomaticImage)
+
+        editorPreviewSource = resolveEditorImage(editorImageDraft || editorAutomaticImage)
+        editorPreviewFallback = editorImageDraft ? automatic : resolveEditorImage("assets/placeholder.png")
+    }
+
+    function advanceEditorPreviewFallback() {
+        var placeholder = resolveEditorImage("assets/placeholder.png")
+
+        if (editorPreviewSource !== editorPreviewFallback) {
+            editorPreviewSource = editorPreviewFallback
+        } else if (editorPreviewSource !== placeholder) {
+            editorPreviewSource = placeholder
+        }
+    }
+
+    function isSupportedImagePath(path) {
+        var value = trimEditorText(path).split(/[?#]/)[0].toLowerCase()
+
+        return /\.(png|jpe?g|webp)$/.test(value)
+    }
+
+    function chooseEditorImage(path) {
+        var value = trimEditorText(path)
+
+        if (!isSupportedImagePath(value)) {
+            cardEditorSaveError = "SELECT PNG, JPG, JPEG OR WEBP"
+            return false
+        }
+
+        editorImageDraft = value
+        editorImagePathField.text = value
+        cardEditorSaveError = ""
+        refreshEditorPreview()
+        return true
+    }
+
+    function previewEditorImagePath() {
+        if (!cardEditorOpen || cardEditorSaving)
+            return
+
+        chooseEditorImage(editorImagePathField.text)
+    }
+
+    function resetEditorImage() {
+        if (cardEditorSaving)
+            return
+
+        editorImageDraft = ""
+        editorImagePathField.text = ""
+        cardEditorSaveError = ""
+        refreshEditorPreview()
+    }
+
+    function saveCardEditor() {
+        if (!cardEditorOpen || cardEditorSaving || !editorCardId)
+            return
+
+        var description = trimEditorText(editorDescriptionField.text)
+        var customImage = trimEditorText(editorImagePathField.text)
+
+        if (description.length > 600)
+            description = description.slice(0, 600)
+
+        if (customImage && !isSupportedImagePath(customImage)) {
+            cardEditorSaveError = "SELECT PNG, JPG, JPEG OR WEBP"
+            return
+        }
+
+        editorImageDraft = customImage
+        refreshEditorPreview()
+        cardEditorSaveError = ""
+
+        if (!updateCardUserData(editorCardId, {
+            customTitle: trimEditorText(editorTitleField.text),
+            description: description,
+            customImage: customImage
+        })) {
+            cardEditorSaveError = "SAVE IS TEMPORARILY UNAVAILABLE"
+            return
+        }
+
+        cardEditorSaving = true
+    }
+
+    function cancelCardEditor() {
+        if (cardEditorSaving)
+            return
+
+        cardEditorOpen = false
+        cardEditorSaveError = ""
+        editorCardId = ""
+    }
+
+    function handleCardDataUpdateFinished(cardId, success, error) {
+        if (!cardEditorSaving || String(cardId) !== editorCardId)
+            return
+
+        cardEditorSaving = false
+
+        if (success) {
+            cardEditorOpen = false
+            cardEditorSaveError = ""
+            editorCardId = ""
+        } else {
+            cardEditorSaveError = error || "SAVE FAILED"
+        }
     }
 
     function handleDiscoveryRefreshed(result) {
@@ -430,6 +619,9 @@ T.Widget {
         launching = false
         launchFailed = false
         launchingTitle = ""
+        cardEditorOpen = false
+        cardEditorSaving = false
+        cardEditorSaveError = ""
 
         panel.visible = true
         panel.opacity = 1
@@ -471,6 +663,11 @@ T.Widget {
         if (closing)
             return
 
+        editMode = false
+        editorCardId = ""
+        cardEditorOpen = false
+        cardEditorSaving = false
+        cardEditorSaveError = ""
         launching = false
         launchFailed = false
         launchingTitle = ""
@@ -540,7 +737,7 @@ T.Widget {
     }
 
     function launchShortcut(game) {
-        if (closing || launching)
+        if (editMode || cardEditorOpen || closing || launching)
             return
 
         var displayName = game && game.title ? game.title : "GAME"
@@ -573,6 +770,7 @@ T.Widget {
 
         shortcutsDir: widget.shortcutsDir
         onRefreshSucceeded: widget.handleDiscoveryRefreshed(result)
+        onCardDataUpdateFinished: widget.handleCardDataUpdateFinished(cardId, success, error)
     }
 
     menu: Menu {
@@ -598,6 +796,10 @@ T.Widget {
     }
 
     Component.onCompleted: {
+        editMode = false
+        editorCardId = ""
+        cardEditorOpen = false
+        cardEditorSaving = false
         resetPanel()
         Qt.callLater(widget.requestInitialRefresh)
 
@@ -702,6 +904,8 @@ T.Widget {
         height: parent.height
         radius: 12
         color: "#EC141922"
+        border.width: widget.editMode ? 1 : 0
+        border.color: "#6EDDF7FF"
         transformOrigin: Item.Left
 
         Repeater {
@@ -785,9 +989,10 @@ T.Widget {
             anchors.right: closeButton.left
             anchors.rightMargin: 10
             y: 19
-            text: widget.launchFailed ? "LAUNCH FAILED // " + widget.launchingTitle
-                                      : (widget.launching ? "LAUNCHING // " + widget.launchingTitle : "READY")
-            color: widget.launchFailed ? "#FFFFB4B4" : (widget.launching ? "#E9FFFFFF" : "#6FFFFFFF")
+            text: widget.editMode ? (widget.editorCardId ? "EDIT CARD // " + widget.editorCardId : "EDIT MODE")
+                                  : (widget.launchFailed ? "LAUNCH FAILED // " + widget.launchingTitle
+                                                         : (widget.launching ? "LAUNCHING // " + widget.launchingTitle : "READY"))
+            color: widget.editMode ? "#DDF7FFFF" : (widget.launchFailed ? "#FFFFB4B4" : (widget.launching ? "#E9FFFFFF" : "#6FFFFFFF"))
             font.pixelSize: 8
             font.letterSpacing: 1.0
             horizontalAlignment: Text.AlignRight
@@ -821,9 +1026,11 @@ T.Widget {
                 selectedFolderId: widget.selectedFolderId
                 hoverZoom: widget.hoverZoom
                 refreshRunning: widget.reloadPending || shortcutDiscovery.refreshing
+                editMode: widget.editMode
                 onFolderSelected: widget.selectedFolderId = folderId
                 onOpenShortcutsRequested: widget.requestOpenShortcutsFolder()
                 onReloadRequested: widget.requestManualReload()
+                onEditModeRequested: widget.toggleEditMode()
             }
 
             Rectangle {
@@ -866,10 +1073,16 @@ T.Widget {
                             width: widget.cardWidth
                             height: widget.cardHeight
                             game: widget.activeGames[index]
+                            cardId: widget.cardIdForGame(widget.activeGames[index])
                             gameNumber: index + 1
                             hoverZoom: widget.hoverZoom
+                            editMode: widget.editMode
                             enabled: !widget.launching && !widget.closing
-                            onLaunchRequested: widget.launchShortcut(game)
+                            onLaunchRequested: {
+                                if (!widget.editMode)
+                                    widget.launchShortcut(game)
+                            }
+                            onEditRequested: widget.openCardEditor(requestedCardId)
                         }
                     }
                 }
@@ -902,6 +1115,416 @@ T.Widget {
                         color: "#8ED7E6F0"
                         font.pixelSize: 8
                         font.letterSpacing: 1.0
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: cardEditorOverlay
+
+            anchors.fill: parent
+            visible: widget.cardEditorOpen
+            focus: visible
+            z: 10
+
+            onVisibleChanged: {
+                if (visible)
+                    forceActiveFocus()
+            }
+
+            Keys.onEscapePressed: {
+                widget.cancelCardEditor()
+                event.accepted = true
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#B7141A24"
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: cardEditorOverlay.visible && !widget.cardEditorSaving
+                onClicked: widget.cancelCardEditor()
+            }
+
+            Rectangle {
+                id: cardEditorPanel
+
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 56, 560)
+                height: Math.min(parent.height - 44, 350)
+                radius: 10
+                color: "#F01A222E"
+                border.width: 1
+                border.color: "#8ADDF7FF"
+
+                // Consume clicks inside the editor so they never reach a card.
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                    }
+                }
+
+                Rectangle {
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.top: parent.top
+                    height: 38
+                    radius: parent.radius
+                    color: "#191F2A36"
+
+                    Text {
+                        anchors.left: parent.left
+                        anchors.leftMargin: 16
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "CARD EDITOR // " + widget.editorCardId
+                        color: "#F4FFFFFF"
+                        font.pixelSize: 11
+                        font.bold: true
+                        font.letterSpacing: 1.4
+                    }
+
+                    Rectangle {
+                        anchors.right: parent.right
+                        anchors.rightMargin: 9
+                        anchors.verticalCenter: parent.verticalCenter
+                        width: 24
+                        height: 24
+                        radius: 4
+                        color: editorCloseMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+                        border.width: editorCloseMouse.containsMouse ? 1 : 0
+                        border.color: "#99FFFFFF"
+
+                        Text {
+                            anchors.centerIn: parent
+                            text: "\u00d7"
+                            color: "#EFFFFFFF"
+                            font.pixelSize: 18
+                        }
+
+                        MouseArea {
+                            id: editorCloseMouse
+
+                            anchors.fill: parent
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            enabled: !widget.cardEditorSaving
+                            onClicked: widget.cancelCardEditor()
+                        }
+                    }
+                }
+
+                Text {
+                    x: 18
+                    y: 51
+                    text: "IMAGE"
+                    color: "#9ED7E6F0"
+                    font.pixelSize: 8
+                    font.bold: true
+                    font.letterSpacing: 1.1
+                }
+
+                Rectangle {
+                    x: 18
+                    y: 65
+                    width: 128
+                    height: 104
+                    radius: 5
+                    clip: true
+                    color: "#1CFFFFFF"
+                    border.width: 1
+                    border.color: "#36FFFFFF"
+
+                    Image {
+                        anchors.fill: parent
+                        source: widget.editorPreviewSource
+                        cache: false
+                        fillMode: Image.PreserveAspectCrop
+                        smooth: true
+
+                        onStatusChanged: {
+                            if (status === Image.Error)
+                                widget.advanceEditorPreviewFallback()
+                        }
+                    }
+                }
+
+                Text {
+                    x: 18
+                    y: 176
+                    width: 128
+                    text: widget.trimEditorText(editorImagePathField.text) ? "CUSTOM IMAGE" : "AUTOMATIC IMAGE"
+                    color: widget.trimEditorText(editorImagePathField.text) ? "#DDF7FFFF" : "#8ED7E6F0"
+                    font.pixelSize: 7
+                    font.letterSpacing: 0.8
+                    horizontalAlignment: Text.AlignHCenter
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    x: 18
+                    y: 192
+                    text: "IMAGE PATH"
+                    color: "#9ED7E6F0"
+                    font.pixelSize: 7
+                    font.bold: true
+                    font.letterSpacing: 0.8
+                }
+
+                TextField {
+                    id: editorImagePathField
+
+                    x: 18
+                    y: 204
+                    width: 128
+                    height: 27
+                    placeholderText: "PNG / JPG / WEBP"
+                    color: "#F4FFFFFF"
+                    placeholderTextColor: "#AFC6D9E7"
+                    font.pixelSize: 8
+                    selectByMouse: true
+                    enabled: !widget.cardEditorSaving
+                    leftPadding: 8
+                    rightPadding: 8
+                    topPadding: 0
+                    bottomPadding: 0
+                    verticalAlignment: TextInput.AlignVCenter
+                    background: Rectangle {
+                        radius: 4
+                        color: "#4208121E"
+                        border.width: 1
+                        border.color: editorImagePathField.activeFocus ? "#B8DDF7FF" : "#668FA9BA"
+                    }
+                }
+
+                Rectangle {
+                    x: 18
+                    y: 237
+                    width: 60
+                    height: 25
+                    radius: 4
+                    color: chooseImageMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+                    border.width: chooseImageMouse.containsMouse ? 1 : 0
+                    border.color: "#99FFFFFF"
+                    opacity: widget.cardEditorSaving ? 0.5 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "PREVIEW"
+                        color: "#EFFFFFFF"
+                        font.pixelSize: 8
+                        font.bold: true
+                        font.letterSpacing: 0.8
+                    }
+
+                    MouseArea {
+                        id: chooseImageMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardEditorSaving
+                        onClicked: widget.previewEditorImagePath()
+                    }
+                }
+
+                Rectangle {
+                    x: 86
+                    y: 237
+                    width: 60
+                    height: 25
+                    radius: 4
+                    color: resetImageMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+                    border.width: resetImageMouse.containsMouse ? 1 : 0
+                    border.color: "#99FFFFFF"
+                    opacity: widget.cardEditorSaving ? 0.5 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "RESET"
+                        color: "#BDE6F5FF"
+                        font.pixelSize: 8
+                        font.letterSpacing: 0.8
+                    }
+
+                    MouseArea {
+                        id: resetImageMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardEditorSaving
+                        onClicked: widget.resetEditorImage()
+                    }
+                }
+
+                Text {
+                    x: 166
+                    y: 51
+                    width: parent.width - x - 18
+                    text: "DISPLAY NAME // EMPTY USES AUTOMATIC"
+                    color: "#9ED7E6F0"
+                    font.pixelSize: 8
+                    font.bold: true
+                    font.letterSpacing: 0.9
+                    elide: Text.ElideRight
+                }
+
+                TextField {
+                    id: editorTitleField
+
+                    x: 166
+                    y: 65
+                    width: parent.width - x - 18
+                    height: 32
+                    maximumLength: 120
+                    placeholderText: widget.editorAutomaticTitle
+                    color: "#F4FFFFFF"
+                    placeholderTextColor: "#C9D9E7F0"
+                    font.pixelSize: 13
+                    selectByMouse: true
+                    enabled: !widget.cardEditorSaving
+                    leftPadding: 10
+                    rightPadding: 10
+                    topPadding: 0
+                    bottomPadding: 0
+                    verticalAlignment: TextInput.AlignVCenter
+                    background: Rectangle {
+                        radius: 4
+                        color: "#4208121E"
+                        border.width: 1
+                        border.color: editorTitleField.activeFocus ? "#B8DDF7FF" : "#668FA9BA"
+                    }
+                }
+
+                Text {
+                    x: 166
+                    y: 101
+                    width: parent.width - x - 18
+                    text: "AUTO // " + widget.editorAutomaticTitle
+                    color: "#6ED7E6F0"
+                    font.pixelSize: 7
+                    font.letterSpacing: 0.7
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    x: 166
+                    y: 116
+                    text: "DESCRIPTION // OPTIONAL"
+                    color: "#9ED7E6F0"
+                    font.pixelSize: 8
+                    font.bold: true
+                    font.letterSpacing: 0.9
+                }
+
+                TextArea {
+                    id: editorDescriptionField
+
+                    x: 166
+                    y: 130
+                    width: parent.width - x - 18
+                    height: 119
+                    clip: true
+                    wrapMode: TextEdit.Wrap
+                    placeholderText: "OPTIONAL DESCRIPTION"
+                    color: "#F4FFFFFF"
+                    placeholderTextColor: "#B9D1E1ED"
+                    font.pixelSize: 12
+                    selectByMouse: true
+                    enabled: !widget.cardEditorSaving
+                    padding: 8
+                    background: Rectangle {
+                        radius: 4
+                        color: "#4208121E"
+                        border.width: 1
+                        border.color: editorDescriptionField.activeFocus ? "#B8DDF7FF" : "#668FA9BA"
+                    }
+
+                    onTextChanged: {
+                        if (text.length > 600)
+                            text = text.slice(0, 600)
+                    }
+                }
+
+                Text {
+                    x: 18
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 17
+                    width: parent.width - 238
+                    text: widget.cardEditorSaveError || (widget.cardEditorSaving ? "SAVING CARD DATA..." : "")
+                    color: widget.cardEditorSaveError ? "#FFFFB4B4" : "#BDE6F5FF"
+                    font.pixelSize: 8
+                    font.letterSpacing: 0.8
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    anchors.right: cancelEditorButton.left
+                    anchors.rightMargin: 8
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    width: 82
+                    height: 29
+                    radius: 4
+                    color: saveEditorMouse.containsMouse ? "#48DDF7FF" : "#28DDF7FF"
+                    border.width: 1
+                    border.color: "#BCEFFFFF"
+                    opacity: widget.cardEditorSaving ? 0.65 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: widget.cardEditorSaving ? "SAVING" : "SAVE"
+                        color: "#FFFFFFFF"
+                        font.pixelSize: 8
+                        font.bold: true
+                        font.letterSpacing: 1.0
+                    }
+
+                    MouseArea {
+                        id: saveEditorMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardEditorSaving
+                        onClicked: widget.saveCardEditor()
+                    }
+                }
+
+                Rectangle {
+                    id: cancelEditorButton
+
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    width: 82
+                    height: 29
+                    radius: 4
+                    color: cancelEditorMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+                    border.width: cancelEditorMouse.containsMouse ? 1 : 0
+                    border.color: "#99FFFFFF"
+                    opacity: widget.cardEditorSaving ? 0.5 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "CANCEL"
+                        color: "#EFFFFFFF"
+                        font.pixelSize: 8
+                        font.letterSpacing: 1.0
+                    }
+
+                    MouseArea {
+                        id: cancelEditorMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardEditorSaving
+                        onClicked: widget.cancelCardEditor()
                     }
                 }
             }

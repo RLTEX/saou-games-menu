@@ -4,8 +4,10 @@ Rectangle {
     id: card
 
     property var game
+    property string cardId: game && game.cardId ? String(game.cardId) : (game && game.id ? String(game.id) : "")
     property int gameNumber: 0
     property real hoverZoom: 1.015
+    property bool editMode: false
     property string fallbackImage: "../assets/placeholder.png"
     property string automaticImage: resolveImage(game && game.automaticImage ? game.automaticImage : (game && game.image ? game.image : ""), false)
     property string customImage: resolveImage(game && game.customImage ? game.customImage : "", true)
@@ -17,6 +19,7 @@ Rectangle {
     property bool hovered: mouse.containsMouse && card.enabled
 
     signal launchRequested(var game)
+    signal editRequested(string requestedCardId)
 
     function resolveImage(path, optional) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -69,8 +72,8 @@ Rectangle {
     radius: 10
     clip: true
     color: "#1AFFFFFF"
-    border.width: hovered ? 2 : 0
-    border.color: hovered ? "#DDF1FDFF" : accentColor
+    border.width: hovered || editMode ? (editMode ? 1 : 2) : 0
+    border.color: editMode ? "#92DDF7FF" : (hovered ? "#DDF1FDFF" : accentColor)
     scale: hovered ? hoverZoom : 1
 
     onPreferredImageChanged: {
@@ -143,7 +146,7 @@ Rectangle {
     Rectangle {
         anchors.left: parent.left
         anchors.bottom: parent.bottom
-        width: card.hovered ? parent.width : 0
+        width: card.hovered || card.editMode ? parent.width : 0
         height: 3
         color: accentColor
 
@@ -176,8 +179,8 @@ Rectangle {
 
         Text {
             width: parent.width
-            text: card.hovered ? "LAUNCH  >" : (game && game.subtitle ? game.subtitle : "")
-            color: card.hovered ? "#F4FFFFFF" : accentColor
+            text: card.editMode ? "EDIT MODE  >" : (card.hovered ? "LAUNCH  >" : (game && game.subtitle ? game.subtitle : ""))
+            color: card.editMode || card.hovered ? "#F4FFFFFF" : accentColor
             font.pixelSize: 8
             font.letterSpacing: 0.8
             elide: Text.ElideRight
@@ -187,8 +190,8 @@ Rectangle {
     Text {
         id: numberText
 
-        anchors.right: parent.right
-        anchors.rightMargin: 12
+        anchors.right: editButton.visible ? editButton.left : parent.right
+        anchors.rightMargin: editButton.visible ? 8 : 12
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 13
         text: card.numberLabel()
@@ -202,8 +205,46 @@ Rectangle {
 
         anchors.fill: parent
         hoverEnabled: true
-        cursorShape: Qt.PointingHandCursor
+        cursorShape: card.editMode ? Qt.ArrowCursor : Qt.PointingHandCursor
         enabled: card.enabled
-        onClicked: card.launchRequested(card.game)
+        onClicked: {
+            if (!card.editMode)
+                card.launchRequested(card.game)
+        }
+    }
+
+    Rectangle {
+        id: editButton
+
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.bottomMargin: 12
+        anchors.rightMargin: 12
+        width: 28
+        height: 28
+        radius: 4
+        visible: card.editMode && card.enabled
+        z: 2
+        color: editMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+        border.width: editMouse.containsMouse ? 1 : 0
+        border.color: "#99FFFFFF"
+
+        Text {
+            anchors.centerIn: parent
+            text: "\u270e"
+            color: "#FFFFFFFF"
+            font.pixelSize: 17
+            font.bold: true
+        }
+
+        MouseArea {
+            id: editMouse
+
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: card.editRequested(card.cardId)
+        }
     }
 }
