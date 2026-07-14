@@ -8,7 +8,9 @@ Item {
     property string shortcutsDir: ""
     property var items: []
     property var cardData: ({})
+    property var folderOverrides: ({})
     property url defaultFolderUrl: Qt.resolvedUrl("../shortcuts")
+    property url packageRootUrl: Qt.resolvedUrl("..")
     property url helperScriptUrl: Qt.resolvedUrl("../tools/discover-shortcuts.ps1")
     property url updateScriptUrl: Qt.resolvedUrl("../tools/update-config-items.ps1")
     property url hiddenLauncherUrl: Qt.resolvedUrl("../tools/run-hidden.vbs")
@@ -94,6 +96,24 @@ Item {
         return ConfigLoader.normalizeString(folderId, "").toLowerCase()
     }
 
+    function normalizeAdditionalFolderIds(source) {
+        var result = []
+        var seen = {}
+
+        if (typeof source === "string")
+            source = [source]
+
+        for (var i = 0; source && i < source.length; ++i) {
+            var folderId = normalizeFolderOrderKey(source[i])
+            if (folderId && folderId !== "all" && !seen[folderId]) {
+                seen[folderId] = true
+                result.push(folderId)
+            }
+        }
+
+        return result
+    }
+
     function normalizeFolderOrders(source) {
         var result = {}
 
@@ -120,6 +140,8 @@ Item {
             description: "",
             customImage: "",
             folderId: "",
+            additionalFolderIds: [],
+            excludedFolderIds: [],
             order: 0,
             hasOrder: false,
             folderOrders: {},
@@ -138,6 +160,8 @@ Item {
         result.description = ConfigLoader.normalizeString(source.description, "")
         result.customImage = ConfigLoader.normalizeString(source.customImage, "")
         result.folderId = ConfigLoader.normalizeString(source.folderId, "")
+        result.additionalFolderIds = normalizeAdditionalFolderIds(source.additionalFolderIds)
+        result.excludedFolderIds = normalizeAdditionalFolderIds(source.excludedFolderIds)
         result.folderOrders = normalizeFolderOrders(source.folderOrders)
         result.isHidden = source.isHidden === true || String(source.isHidden || "").toLowerCase() === "true"
         result.sourcePath = ConfigLoader.normalizeString(source.sourcePath, "")
@@ -173,6 +197,12 @@ Item {
 
         if (normalized.folderId)
             result.folderId = normalized.folderId
+
+        if (normalized.additionalFolderIds.length)
+            result.additionalFolderIds = normalized.additionalFolderIds
+
+        if (normalized.excludedFolderIds.length)
+            result.excludedFolderIds = normalized.excludedFolderIds
 
         if (normalized.hasOrder)
             result.order = normalized.order
@@ -222,6 +252,10 @@ Item {
         // Reassign so dependent QML bindings refresh after an editor save.
         if (items && typeof items.length === "number")
             items = items.slice(0)
+    }
+
+    function applyFolderOverrides(source) {
+        folderOverrides = source && typeof source === "object" ? source : ({})
     }
 
     function encodedDiscoveryItems(items) {
@@ -503,6 +537,8 @@ Item {
 
             if (data.cardData !== undefined && data.cardData !== null)
                 applyCardData(data.cardData)
+            if (data.folderOverrides !== undefined && data.folderOverrides !== null)
+                applyFolderOverrides(data.folderOverrides)
             items = normalizeDiscoveredItems(lastDiscoveryResult && lastDiscoveryResult.items, data.items)
             finishRefresh(data)
             return
@@ -591,7 +627,8 @@ Item {
 
         var encodedCardData = ""
         if (operation !== "remove-card-data") {
-            var dataForStore = operation === "update-card-orders" ? data : normalizedCardDataForStore(data)
+            var dataForStore = operation === "update-card-orders" || operation === "move-card" || operation === "copy-card-to-folder"
+                    || operation === "update-folder-overrides" || operation === "save-widget-settings" || operation === "create-folder" ? data : normalizedCardDataForStore(data)
             encodedCardData = encodeURIComponent(JSON.stringify(dataForStore))
         }
 
@@ -609,6 +646,8 @@ Item {
             "Bypass",
             "-File",
             fileUrlToPath(updateScriptUrl),
+            "-ConfigPath",
+            fileUrlToPath(configFileUrl),
             "-StatePath",
             fileUrlToPath(stateFileUrl),
             "-UpdateOutputPath",
@@ -655,6 +694,26 @@ Item {
         return startCardDataUpdate("update-card-orders", "orders", data)
     }
 
+    function moveCard(cardId, data) {
+        return startCardDataUpdate("move-card", cardId, data)
+    }
+
+    function copyCardToFolder(cardId, data) {
+        return startCardDataUpdate("copy-card-to-folder", cardId, data)
+    }
+
+    function updateFolderOverrides(data) {
+        return startCardDataUpdate("update-folder-overrides", "folders", data)
+    }
+
+    function saveWidgetSettings(data) {
+        return startCardDataUpdate("save-widget-settings", "settings", data)
+    }
+
+    function createFolder(data) {
+        return startCardDataUpdate("create-folder", "folder", data)
+    }
+
     function tryReadCardDataUpdate() {
         var data = readCardDataUpdateFile()
 
@@ -669,8 +728,11 @@ Item {
 
             if (data.cardDataUpdateError)
                 console.log("Games Menu card data update failed: " + data.cardDataUpdateError)
-            else
+            else {
                 applyCardData(data.cardData)
+                if (data.folderOverrides !== undefined && data.folderOverrides !== null)
+                    applyFolderOverrides(data.folderOverrides)
+            }
 
             finishCardDataUpdate(normalizeCardId(data.cardId), data.cardDataUpdateError ? null : data, data.cardDataUpdateError || "")
             return
@@ -766,6 +828,16 @@ Item {
         interval: 250
         repeat: true
         onTriggered: discovery.tryReadConfigUpdate()
+    }
+
+    function openPackageFolder() {
+        var explorer = "C:\\Windows\\explorer.exe"
+
+        try {
+            NVG.SystemCall.execute(explorer, quoteArgument(fileUrlToPath(packageRootUrl)))
+        } catch (error) {
+            console.log("Games Menu package folder open failed: " + error)
+        }
     }
 
     Timer {

@@ -10,8 +10,6 @@ Rectangle {
     property bool editMode: false
     property bool reorderEnabled: false
     property bool reorderDragging: false
-    property bool reorderInsertBefore: false
-    property bool reorderInsertAfter: false
     property string fallbackImage: "../assets/placeholder.png"
     property string automaticImage: resolveImage(game && game.automaticImage ? game.automaticImage : (game && game.image ? game.image : ""), false)
     property string customImage: resolveImage(game && game.customImage ? game.customImage : "", true)
@@ -26,7 +24,7 @@ Rectangle {
     signal editRequested(string requestedCardId)
     signal removeRequested(string requestedCardId)
     signal reorderStarted(string requestedCardId)
-    signal reorderPointerMoved(string requestedCardId, real gridX, real gridY)
+    signal reorderPointerMoved(string requestedCardId, real gridX, real gridY, real sceneX, real sceneY)
     signal reorderDropped(string requestedCardId)
     signal reorderFinished(string requestedCardId)
 
@@ -80,21 +78,23 @@ Rectangle {
 
     radius: 10
     clip: true
-    opacity: reorderDragging ? 0.52 : 1
+    opacity: reorderDragging ? 0.24 : 1
     color: "#1AFFFFFF"
-    border.width: hovered || editMode ? (editMode ? 1 : 2) : 0
-    border.color: editMode ? "#92DDF7FF" : (hovered ? "#DDF1FDFF" : accentColor)
+    // The hover outline does not stay aligned with the zoomed image in the
+    // SAO Utils renderer. Keep only the Edit Mode state indicator for now.
+    border.width: editMode ? 1 : 0
+    border.color: "#92DDF7FF"
 
     Behavior on opacity {
         NumberAnimation { duration: 100 }
     }
 
     Behavior on x {
-        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
     }
 
     Behavior on y {
-        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+        NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
     }
 
     onPreferredImageChanged: {
@@ -170,28 +170,6 @@ Rectangle {
                 easing.type: Easing.OutCubic
             }
         }
-    }
-
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.top: parent.top
-        anchors.topMargin: 1
-        height: 3
-        visible: card.reorderInsertBefore
-        z: 3
-        color: "#F4DDF7FF"
-    }
-
-    Rectangle {
-        anchors.left: parent.left
-        anchors.right: parent.right
-        anchors.bottom: parent.bottom
-        anchors.bottomMargin: 1
-        height: 3
-        visible: card.reorderInsertAfter
-        z: 3
-        color: "#F4DDF7FF"
     }
 
     Column {
@@ -343,13 +321,15 @@ Rectangle {
                     return
 
                 moved = true
-                var point = reorderButton.mapToItem(card.parent, mouseX, mouseY)
-                card.reorderPointerMoved(card.cardId, point.x, point.y)
+                var gridPoint = reorderButton.mapToItem(card.parent, mouseX, mouseY)
+                var scenePoint = reorderButton.mapToItem(null, mouseX, mouseY)
+                card.reorderPointerMoved(card.cardId, gridPoint.x, gridPoint.y, scenePoint.x, scenePoint.y)
             }
             onReleased: {
                 if (moved) {
-                    var point = reorderButton.mapToItem(card.parent, mouseX, mouseY)
-                    card.reorderPointerMoved(card.cardId, point.x, point.y)
+                    var gridPoint = reorderButton.mapToItem(card.parent, mouseX, mouseY)
+                    var scenePoint = reorderButton.mapToItem(null, mouseX, mouseY)
+                    card.reorderPointerMoved(card.cardId, gridPoint.x, gridPoint.y, scenePoint.x, scenePoint.y)
                     card.reorderDropped(card.cardId)
                 } else {
                     card.reorderFinished(card.cardId)
