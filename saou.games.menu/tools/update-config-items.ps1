@@ -176,6 +176,51 @@ function Normalize-FolderOrders {
     return $result
 }
 
+function Normalize-AdditionalFolderIds {
+    param([object] $Value)
+
+    $result = New-Object "System.Collections.Generic.List[string]"
+    $seen = @{}
+
+    if ($null -eq $Value) { return @() }
+
+    foreach ($entry in @($Value)) {
+        if ($null -eq $entry) { continue }
+
+        $folderId = Normalize-FolderOrderKey -Value ([string] $entry)
+        if ($folderId -ne "all" -and -not $seen.ContainsKey($folderId)) {
+            $seen[$folderId] = $true
+            $result.Add($folderId)
+        }
+    }
+
+    return @($result.ToArray())
+}
+
+function Normalize-FolderOverrides {
+    param([object] $Value)
+
+    $result = [ordered]@{}
+    if ($null -eq $Value) { return $result }
+
+    foreach ($property in @($Value.PSObject.Properties)) {
+        $folderId = Normalize-FolderOrderKey -Value ([string] $property.Name)
+        $source = $property.Value
+        $entry = [ordered]@{}
+        foreach ($name in @("customTitle", "customIcon")) {
+            $text = ([string] (Get-ObjectPropertyValue -Object $source -Name $name)).Trim()
+            if ($text) { $entry[$name] = $text }
+        }
+        $maxColumns = 0
+        if ([int]::TryParse([string] (Get-ObjectPropertyValue -Object $source -Name "maxColumns"), [ref] $maxColumns) -and $maxColumns -ge 1 -and $maxColumns -le 8) {
+            $entry.maxColumns = $maxColumns
+        }
+        if ($entry.Count -gt 0) { $result[$folderId] = [PSCustomObject] $entry }
+    }
+
+    return $result
+}
+
 function Normalize-CardData {
     param(
         [object] $Data
@@ -190,6 +235,16 @@ function Normalize-CardData {
         if ($normalized) {
             $result[$name] = $normalized
         }
+    }
+
+    $additionalFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $Data -Name "additionalFolderIds")
+    if ($additionalFolderIds.Count -gt 0) {
+        $result.additionalFolderIds = @($additionalFolderIds)
+    }
+
+    $excludedFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $Data -Name "excludedFolderIds")
+    if ($excludedFolderIds.Count -gt 0) {
+        $result.excludedFolderIds = @($excludedFolderIds)
     }
 
     if (Test-ObjectHasProperty -Object $Data -Name "order") {
@@ -266,6 +321,12 @@ function Get-ManagedImageDirectory {
     }
 
     return Join-Path $localAppData "SAO Utils\Games Menu\custom-images"
+}
+
+function Get-ManagedFolderIconDirectory {
+    $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($localAppData)) { throw "Local application data directory is unavailable" }
+    return Join-Path $localAppData "SAO Utils\Games Menu\custom-folder-icons"
 }
 
 function Get-ManagedShortcutDirectory {
@@ -418,6 +479,24 @@ function Import-CardImage {
     return [System.IO.Path]::GetFullPath($destination)
 }
 
+function Import-FolderIcon {
+    param([string] $FolderId, [string] $SourceFile)
+
+    $sourcePath = Resolve-ImageSourcePath -Value $SourceFile
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Selected icon file was not found" }
+    $extension = [System.IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
+    if ($extension -notin @(".png", ".jpg", ".jpeg", ".webp") -or -not (Test-SupportedImageContent -Path $sourcePath -Extension $extension)) {
+        throw "Only valid PNG, JPG, JPEG, and WebP icons are supported"
+    }
+    $directory = Get-ManagedFolderIconDirectory
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    $normalizedExtension = if ($extension -eq ".jpeg") { ".jpg" } else { $extension }
+    $destination = Join-Path $directory ((Get-SafeCardFileStem -CardId $FolderId) + "-" + [System.Guid]::NewGuid().ToString("N") + $normalizedExtension)
+    Copy-Item -LiteralPath $sourcePath -Destination $destination -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "Icon copy could not be verified" }
+    return [System.IO.Path]::GetFullPath($destination)
+}
+
 function Test-ManagedImagePath {
     param(
         [string] $Path,
@@ -512,6 +591,7 @@ function Read-State {
             nextId = 1
             items = @()
             cardData = [ordered]@{}
+            folderOverrides = [ordered]@{}
             schemaChanged = $true
         }
     }
@@ -528,6 +608,7 @@ function Read-State {
             nextId = 1
             items = @()
             cardData = [ordered]@{}
+            folderOverrides = [ordered]@{}
             schemaChanged = $true
         }
     }
@@ -577,6 +658,8 @@ function Read-State {
         }
     }
 
+    $folderOverrides = Normalize-FolderOverrides -Value $state.folderOverrides
+
     $stateVersion = 0
 
     if ($state.PSObject.Properties["stateVersion"]) {
@@ -588,7 +671,8 @@ function Read-State {
         nextId = $nextId
         items = @($items)
         cardData = $cardData
-        schemaChanged = $stateVersion -lt 3 -or -not $state.PSObject.Properties["cardData"]
+        folderOverrides = $folderOverrides
+        schemaChanged = $stateVersion -lt 3 -or -not $state.PSObject.Properties["cardData"] -or -not $state.PSObject.Properties["folderOverrides"]
     }
 }
 
@@ -609,6 +693,7 @@ function Write-State {
         nextId = [int] $State.nextId
         items = @($State.items)
         cardData = $State.cardData
+        folderOverrides = $State.folderOverrides
     }
     $json = $stateForWrite | ConvertTo-Json -Depth 8
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -711,6 +796,21 @@ function Preserve-ConfigTitleAsCustomTitle {
         }
     }
 
+    $additionalFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $existing -Name "additionalFolderIds")
+    if ($additionalFolderIds.Count -gt 0) {
+        $merged.additionalFolderIds = @($additionalFolderIds)
+    }
+
+    $excludedFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $existing -Name "excludedFolderIds")
+    if ($excludedFolderIds.Count -gt 0) {
+        $merged.excludedFolderIds = @($excludedFolderIds)
+    }
+
+    $folderOrders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $existing -Name "folderOrders")
+    if ($folderOrders.Count -gt 0) {
+        $merged.folderOrders = [PSCustomObject] $folderOrders
+    }
+
     if (Test-ObjectHasProperty -Object $existing -Name "order") {
         $merged.order = Get-ObjectPropertyValue -Object $existing -Name "order"
     }
@@ -734,6 +834,54 @@ function Write-OutputJson {
     $json = $Value | ConvertTo-Json -Depth 8 -Compress
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
+}
+
+function Save-WidgetSettings {
+    param([string] $Path, [object] $Settings)
+
+    if (-not $Path) { throw "Config path is required" }
+    $startHidden = ([string] (Get-ObjectPropertyValue -Object $Settings -Name "startHidden")).Trim().ToLowerInvariant()
+    $syncSubtitle = ([string] (Get-ObjectPropertyValue -Object $Settings -Name "syncSubtitle")).Trim().ToLowerInvariant()
+    if ($startHidden -notin @("true", "false") -or $syncSubtitle -notin @("true", "false")) { throw "Boolean setting is invalid" }
+    $maxColumns = 0
+    if (-not [int]::TryParse([string] (Get-ObjectPropertyValue -Object $Settings -Name "maxColumns"), [ref] $maxColumns) -or $maxColumns -lt 1 -or $maxColumns -gt 8) { throw "Max columns must be between 1 and 8" }
+
+    $lines = if (Test-Path -LiteralPath $Path -PathType Leaf) { @(Get-Content -LiteralPath $Path -Encoding UTF8) } else { @() }
+    $updates = @{ starthidden = "startHidden=$startHidden"; maxcolumns = "maxColumns=$maxColumns"; syncsubtitle = "syncSubtitle=$syncSubtitle" }
+    $seen = @{}
+    $result = New-Object "System.Collections.Generic.List[string]"
+    foreach ($line in $lines) {
+        $match = [regex]::Match($line, "^\s*([^#=]+?)\s*=")
+        $key = if ($match.Success) { $match.Groups[1].Value.Trim().ToLowerInvariant() } else { "" }
+        if ($key -and $updates.ContainsKey($key)) {
+            $result.Add($updates[$key]); $seen[$key] = $true
+        } else { $result.Add($line) }
+    }
+    foreach ($key in @("starthidden", "maxcolumns", "syncsubtitle")) { if (-not $seen.ContainsKey($key)) { $result.Add($updates[$key]) } }
+    $directory = [System.IO.Path]::GetDirectoryName($Path)
+    if ($directory -and -not (Test-Path -LiteralPath $directory -PathType Container)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    $temporary = $Path + ".tmp"
+    [System.IO.File]::WriteAllLines($temporary, @($result.ToArray()), (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $temporary -Destination $Path -Force
+}
+
+function Add-WidgetFolder {
+    param([string] $Path, [object] $Data)
+
+    $folderId = Normalize-FolderOrderKey -Value ([string] (Get-ObjectPropertyValue -Object $Data -Name "folderId"))
+    if ($folderId -eq "all") { throw "ALL is reserved" }
+    $title = ([string] (Get-ObjectPropertyValue -Object $Data -Name "displayName")).Trim()
+    if (-not $title) { throw "Folder name is required" }
+    if ($title.IndexOf("|") -ge 0 -or $title.IndexOf([Environment]::NewLine) -ge 0) { throw "Folder name contains unsupported characters" }
+
+    $lines = if (Test-Path -LiteralPath $Path -PathType Leaf) { @(Get-Content -LiteralPath $Path -Encoding UTF8) } else { @() }
+    foreach ($line in $lines) {
+        if ($line -match "^\s*folder\s*=\s*$([regex]::Escape($folderId))(\||\s*$)") { throw "Folder ID already exists" }
+    }
+    $lines += "folder=$folderId|$title"
+    $temporary = $Path + ".tmp"
+    [System.IO.File]::WriteAllLines($temporary, @($lines), (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item -LiteralPath $temporary -Destination $Path -Force
 }
 
 function Resolve-Identities {
@@ -1306,6 +1454,302 @@ if ($Operation -eq "update-card-orders") {
     exit 0
 }
 
+if ($Operation -eq "copy-card-to-folder") {
+    $cardDataUpdateError = ""
+    $cardDataChanged = $false
+    $updatedCardData = [ordered]@{}
+
+    try {
+        $state = Read-State -Path $StatePath
+        $normalizedCardId = Normalize-CardId -Value $CardId
+        if (-not $normalizedCardId) { throw "Card ID is required" }
+
+        $payload = Decode-CardData -EncodedValue $CardDataEncoded
+        $destinationFolderId = Normalize-FolderOrderKey -Value ([string] (Get-ObjectPropertyValue -Object $payload -Name "destinationFolderId"))
+        if ($destinationFolderId -eq "all") { throw "Cards cannot be copied into ALL" }
+
+        $entriesValue = Get-ObjectPropertyValue -Object $payload -Name "destinationOrders"
+        $entries = if ($null -eq $entriesValue) { @() } else { @($entriesValue) }
+        if ($entries.Count -eq 0) { throw "Destination card order is empty" }
+
+        $seenCardIds = @{}
+        $seenOrders = @{}
+        $normalizedEntries = @()
+
+        foreach ($entry in $entries) {
+            $entryCardId = Normalize-CardId -Value ([string] (Get-ObjectPropertyValue -Object $entry -Name "cardId"))
+            $entryOrder = 0
+            if (-not $entryCardId) { throw "Card ID is required for ordering" }
+            if (-not [int]::TryParse([string] (Get-ObjectPropertyValue -Object $entry -Name "order"), [ref] $entryOrder) -or $entryOrder -lt 0) { throw "Card order is invalid" }
+            if ($seenCardIds.ContainsKey($entryCardId)) { throw "Duplicate card ID in order update" }
+            if ($seenOrders.ContainsKey($entryOrder)) { throw "Duplicate order in order update" }
+            $seenCardIds[$entryCardId] = $true
+            $seenOrders[$entryOrder] = $true
+            $normalizedEntries += [PSCustomObject]@{ cardId = $entryCardId; order = $entryOrder }
+        }
+
+        if (-not $seenCardIds.ContainsKey($normalizedCardId)) { throw "Copied card is missing from destination order" }
+        for ($expectedOrder = 0; $expectedOrder -lt $normalizedEntries.Count; ++$expectedOrder) {
+            if (-not $seenOrders.ContainsKey($expectedOrder)) { throw "Card order must be sequential" }
+        }
+
+        $copiedCardData = Normalize-CardData -Data (Get-CardData -State $state -Id $normalizedCardId)
+        if (-not $copiedCardData) { $copiedCardData = [PSCustomObject]@{} }
+
+        $primaryFolderId = ([string] (Get-ObjectPropertyValue -Object $copiedCardData -Name "folderId")).Trim().ToLowerInvariant()
+        $additionalFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $copiedCardData -Name "additionalFolderIds")
+        if ($primaryFolderId -eq $destinationFolderId -or $additionalFolderIds -contains $destinationFolderId) { throw "Card is already in this folder" }
+
+        $additionalFolderIds = @($additionalFolderIds) + @($destinationFolderId)
+        if (Test-ObjectHasProperty -Object $copiedCardData -Name "additionalFolderIds") {
+            $copiedCardData.additionalFolderIds = @($additionalFolderIds)
+        } else {
+            $copiedCardData | Add-Member -NotePropertyName additionalFolderIds -NotePropertyValue @($additionalFolderIds)
+        }
+
+        [void] (Set-CardData -State $state -Id $normalizedCardId -Data $copiedCardData)
+
+        foreach ($entry in $normalizedEntries) {
+            $nextCardData = Normalize-CardData -Data (Get-CardData -State $state -Id $entry.cardId)
+            if (-not $nextCardData) { $nextCardData = [PSCustomObject]@{} }
+
+            $folderOrders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $nextCardData -Name "folderOrders")
+            $folderOrders[$destinationFolderId] = [int] $entry.order
+            if (Test-ObjectHasProperty -Object $nextCardData -Name "folderOrders") {
+                $nextCardData.folderOrders = [PSCustomObject] $folderOrders
+            } else {
+                $nextCardData | Add-Member -NotePropertyName folderOrders -NotePropertyValue ([PSCustomObject] $folderOrders)
+            }
+
+            [void] (Set-CardData -State $state -Id $entry.cardId -Data $nextCardData)
+        }
+
+        Write-State -Path $StatePath -State $state
+        $cardDataChanged = $true
+        $updatedCardData = $state.cardData
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId
+        operation = $Operation
+        cardId = $CardId
+        stateChanged = $cardDataChanged
+        cardDataUpdateError = $cardDataUpdateError
+        cardData = $updatedCardData
+    })
+    exit 0
+}
+
+if ($Operation -eq "move-card") {
+    $cardDataUpdateError = ""
+    $cardDataChanged = $false
+    $updatedCardData = [ordered]@{}
+
+    try {
+        $state = Read-State -Path $StatePath
+        $normalizedCardId = Normalize-CardId -Value $CardId
+        if (-not $normalizedCardId) { throw "Card ID is required" }
+
+        $payload = Decode-CardData -EncodedValue $CardDataEncoded
+        $sourceFolderId = Normalize-FolderOrderKey -Value ([string] (Get-ObjectPropertyValue -Object $payload -Name "sourceFolderId"))
+        $destinationFolderId = Normalize-FolderOrderKey -Value ([string] (Get-ObjectPropertyValue -Object $payload -Name "destinationFolderId"))
+        if ($sourceFolderId -eq $destinationFolderId) { throw "Source and destination folders are the same" }
+
+        $sourceEntriesValue = Get-ObjectPropertyValue -Object $payload -Name "sourceOrders"
+        $destinationEntriesValue = Get-ObjectPropertyValue -Object $payload -Name "destinationOrders"
+        $sourceEntries = if ($null -eq $sourceEntriesValue) { @() } else { @($sourceEntriesValue) }
+        $destinationEntries = if ($null -eq $destinationEntriesValue) { @() } else { @($destinationEntriesValue) }
+        if ($destinationEntries.Count -eq 0) { throw "Destination card order is empty" }
+
+        foreach ($entrySet in @(
+            [PSCustomObject]@{ folderId = $sourceFolderId; entries = $sourceEntries },
+            [PSCustomObject]@{ folderId = $destinationFolderId; entries = $destinationEntries }
+        )) {
+            $seenCardIds = @{}
+            $seenOrders = @{}
+            $normalizedEntries = @()
+
+            foreach ($entry in $entrySet.entries) {
+                $entryCardId = Normalize-CardId -Value ([string] (Get-ObjectPropertyValue -Object $entry -Name "cardId"))
+                $entryOrder = 0
+                if (-not $entryCardId) { throw "Card ID is required for ordering" }
+                if (-not [int]::TryParse([string] (Get-ObjectPropertyValue -Object $entry -Name "order"), [ref] $entryOrder) -or $entryOrder -lt 0) { throw "Card order is invalid" }
+                if ($seenCardIds.ContainsKey($entryCardId)) { throw "Duplicate card ID in order update" }
+                if ($seenOrders.ContainsKey($entryOrder)) { throw "Duplicate order in order update" }
+                $seenCardIds[$entryCardId] = $true
+                $seenOrders[$entryOrder] = $true
+                $normalizedEntries += [PSCustomObject]@{ cardId = $entryCardId; order = $entryOrder }
+            }
+
+            for ($expectedOrder = 0; $expectedOrder -lt $normalizedEntries.Count; ++$expectedOrder) {
+                if (-not $seenOrders.ContainsKey($expectedOrder)) { throw "Card order must be sequential" }
+            }
+
+            foreach ($entry in $normalizedEntries) {
+                $nextCardData = Normalize-CardData -Data (Get-CardData -State $state -Id $entry.cardId)
+                if (-not $nextCardData) { $nextCardData = [PSCustomObject]@{} }
+
+                $folderOrders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $nextCardData -Name "folderOrders")
+                $folderOrders[$entrySet.folderId] = [int] $entry.order
+                if (Test-ObjectHasProperty -Object $nextCardData -Name "folderOrders") {
+                    $nextCardData.folderOrders = [PSCustomObject] $folderOrders
+                } else {
+                    $nextCardData | Add-Member -NotePropertyName folderOrders -NotePropertyValue ([PSCustomObject] $folderOrders)
+                }
+
+                [void] (Set-CardData -State $state -Id $entry.cardId -Data $nextCardData)
+            }
+        }
+
+        $movedCardData = Normalize-CardData -Data (Get-CardData -State $state -Id $normalizedCardId)
+        if (-not $movedCardData) { $movedCardData = [PSCustomObject]@{} }
+
+        $primaryFolderId = ([string] (Get-ObjectPropertyValue -Object $movedCardData -Name "folderId")).Trim().ToLowerInvariant()
+        $additionalFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $movedCardData -Name "additionalFolderIds")
+        $excludedFolderIds = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $movedCardData -Name "excludedFolderIds")
+        $sourceIsAdditionalFolder = $sourceFolderId -ne "all" -and $additionalFolderIds -contains $sourceFolderId -and $primaryFolderId -ne $sourceFolderId
+
+        if ($sourceIsAdditionalFolder) {
+            $nextAdditionalFolderIds = @()
+            foreach ($folderId in $additionalFolderIds) {
+                if ($folderId -ne $sourceFolderId) { $nextAdditionalFolderIds += $folderId }
+            }
+
+            if ($destinationFolderId -ne "all" -and $destinationFolderId -ne $primaryFolderId -and $nextAdditionalFolderIds -notcontains $destinationFolderId) {
+                $nextAdditionalFolderIds += $destinationFolderId
+            }
+
+            if ($nextAdditionalFolderIds.Count -gt 0) {
+                if (Test-ObjectHasProperty -Object $movedCardData -Name "additionalFolderIds") {
+                    $movedCardData.additionalFolderIds = @($nextAdditionalFolderIds)
+                } else {
+                    $movedCardData | Add-Member -NotePropertyName additionalFolderIds -NotePropertyValue @($nextAdditionalFolderIds)
+                }
+            } elseif (Test-ObjectHasProperty -Object $movedCardData -Name "additionalFolderIds") {
+                [void] $movedCardData.PSObject.Properties.Remove("additionalFolderIds")
+            }
+        } else {
+            $nextAdditionalFolderIds = @()
+            foreach ($folderId in $additionalFolderIds) {
+                if ($folderId -ne $destinationFolderId) { $nextAdditionalFolderIds += $folderId }
+            }
+
+            if ($nextAdditionalFolderIds.Count -gt 0) {
+                if (Test-ObjectHasProperty -Object $movedCardData -Name "additionalFolderIds") {
+                    $movedCardData.additionalFolderIds = @($nextAdditionalFolderIds)
+                } else {
+                    $movedCardData | Add-Member -NotePropertyName additionalFolderIds -NotePropertyValue @($nextAdditionalFolderIds)
+                }
+            } elseif (Test-ObjectHasProperty -Object $movedCardData -Name "additionalFolderIds") {
+                [void] $movedCardData.PSObject.Properties.Remove("additionalFolderIds")
+            }
+
+            if ($destinationFolderId -eq "all") {
+                if (Test-ObjectHasProperty -Object $movedCardData -Name "folderId") {
+                    [void] $movedCardData.PSObject.Properties.Remove("folderId")
+                }
+            } elseif (Test-ObjectHasProperty -Object $movedCardData -Name "folderId") {
+                $movedCardData.folderId = $destinationFolderId
+            } else {
+                $movedCardData | Add-Member -NotePropertyName folderId -NotePropertyValue $destinationFolderId
+            }
+        }
+
+        $nextExcludedFolderIds = @()
+        foreach ($folderId in $excludedFolderIds) {
+            if ($folderId -ne $destinationFolderId) { $nextExcludedFolderIds += $folderId }
+        }
+        if ($destinationFolderId -eq "all" -and $sourceFolderId -ne "all" -and $nextExcludedFolderIds -notcontains $sourceFolderId) {
+            $nextExcludedFolderIds += $sourceFolderId
+        }
+        if ($nextExcludedFolderIds.Count -gt 0) {
+            if (Test-ObjectHasProperty -Object $movedCardData -Name "excludedFolderIds") {
+                $movedCardData.excludedFolderIds = @($nextExcludedFolderIds)
+            } else {
+                $movedCardData | Add-Member -NotePropertyName excludedFolderIds -NotePropertyValue @($nextExcludedFolderIds)
+            }
+        } elseif (Test-ObjectHasProperty -Object $movedCardData -Name "excludedFolderIds") {
+            [void] $movedCardData.PSObject.Properties.Remove("excludedFolderIds")
+        }
+
+        [void] (Set-CardData -State $state -Id $normalizedCardId -Data $movedCardData)
+        Write-State -Path $StatePath -State $state
+        $cardDataChanged = $true
+        $updatedCardData = $state.cardData
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId
+        operation = $Operation
+        cardId = $CardId
+        stateChanged = $cardDataChanged
+        cardDataUpdateError = $cardDataUpdateError
+        cardData = $updatedCardData
+    })
+    exit 0
+}
+
+if ($Operation -eq "create-folder") {
+    $cardDataUpdateError = ""
+    try { Add-WidgetFolder -Path $ConfigPath -Data (Decode-CardData -EncodedValue $CardDataEncoded) } catch { $cardDataUpdateError = $_.Exception.Message }
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId; operation = $Operation; cardId = $CardId; stateChanged = -not [bool]$cardDataUpdateError
+        cardDataUpdateError = $cardDataUpdateError; cardData = [ordered]@{}
+    })
+    exit 0
+}
+
+if ($Operation -eq "save-widget-settings") {
+    $cardDataUpdateError = ""
+    try {
+        Save-WidgetSettings -Path $ConfigPath -Settings (Decode-CardData -EncodedValue $CardDataEncoded)
+    } catch { $cardDataUpdateError = $_.Exception.Message }
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId; operation = $Operation; cardId = $CardId; stateChanged = -not [bool]$cardDataUpdateError
+        cardDataUpdateError = $cardDataUpdateError; cardData = [ordered]@{}
+    })
+    exit 0
+}
+
+if ($Operation -eq "update-folder-overrides") {
+    $cardDataUpdateError = ""
+    $cardDataChanged = $false
+    $updatedCardData = [ordered]@{}
+    $updatedFolderOverrides = [ordered]@{}
+
+    try {
+        $state = Read-State -Path $StatePath
+        $payload = Decode-CardData -EncodedValue $CardDataEncoded
+        $rawOverrides = Get-ObjectPropertyValue -Object $payload -Name "folderOverrides"
+        foreach ($property in @($rawOverrides.PSObject.Properties)) {
+            $folderId = Normalize-FolderOrderKey -Value ([string] $property.Name)
+            $iconSource = ([string] (Get-ObjectPropertyValue -Object $property.Value -Name "customIconSource")).Trim()
+            if ($iconSource) {
+                $importedIcon = Import-FolderIcon -FolderId $folderId -SourceFile $iconSource
+                if (Test-ObjectHasProperty -Object $property.Value -Name "customIcon") { $property.Value.customIcon = $importedIcon }
+                else { $property.Value | Add-Member -NotePropertyName customIcon -NotePropertyValue $importedIcon }
+            }
+        }
+        $state.folderOverrides = Normalize-FolderOverrides -Value $rawOverrides
+        Write-State -Path $StatePath -State $state
+        $cardDataChanged = $true
+        $updatedCardData = $state.cardData
+        $updatedFolderOverrides = $state.folderOverrides
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId; operation = $Operation; cardId = $CardId; stateChanged = $cardDataChanged
+        cardDataUpdateError = $cardDataUpdateError; cardData = $updatedCardData; folderOverrides = $updatedFolderOverrides
+    })
+    exit 0
+}
+
 if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data" -or $Operation -eq "create-manual-card") {
     $cardDataUpdateError = ""
     $cardDataChanged = $false
@@ -1440,6 +1884,7 @@ $result = [PSCustomObject]@{
     warnings = @($warnings)
     items = @($identityItems)
     cardData = if ($state) { $state.cardData } else { [ordered]@{} }
+    folderOverrides = if ($state) { $state.folderOverrides } else { [ordered]@{} }
 }
 
 Write-OutputJson -Path $UpdateOutputPath -Value $result

@@ -9,11 +9,33 @@ Item {
     property string fallbackIcon: "folder-icons/default.png"
     property bool refreshRunning: false
     property bool editMode: false
+    property bool cardDragActive: false
+    property string cardDragSourceFolderId: ""
+    property string cardDragTargetFolderId: ""
 
     signal folderSelected(string folderId)
     signal openShortcutsRequested()
+    signal settingsRequested()
+    signal folderEditRequested(string folderId)
+    signal folderCreateRequested()
     signal reloadRequested()
     signal editModeRequested()
+
+    function folderIdAtScenePosition(sceneX, sceneY) {
+        if (!editMode || !cardDragActive)
+            return ""
+
+        var point = mapFromItem(null, sceneX, sceneY)
+        var rowHeight = 42 + folderColumn.spacing
+        var index = Math.floor((point.y - folderColumn.y) / rowHeight)
+
+        if (point.x < 0 || point.x > width || index < 0 || !folders || index >= folders.length)
+            return ""
+
+        var withinRow = point.y - folderColumn.y - index * rowHeight
+        var folder = folders[index]
+        return withinRow >= 0 && withinRow <= 42 && folder && folder.id !== cardDragSourceFolderId ? String(folder.id) : ""
+    }
 
     function resolveImage(path) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -58,16 +80,18 @@ Item {
                 property var folder: sidebar.folders[index]
                 property bool selected: folder && folder.id === sidebar.selectedFolderId
                 property bool hovered: folderMouse.containsMouse
+                property bool dropTarget: sidebar.cardDragActive && sidebar.editMode && folder
+                                          && folder.id === sidebar.cardDragTargetFolderId
                 property string preferredIcon: sidebar.resolveImage(folder && folder.icon ? folder.icon : sidebar.fallbackIcon)
                 property string currentIcon: preferredIcon
 
                 width: folderColumn.width
                 height: 42
                 radius: 7
-                color: selected ? "#1FDDF6FF" : (hovered ? "#12FFFFFF" : "transparent")
-                border.width: selected ? 1 : 0
-                border.color: "#4FDDF6FF"
-                scale: hovered && !selected ? sidebar.hoverZoom : 1
+                color: dropTarget ? "#36DDF6FF" : (selected ? "#1FDDF6FF" : (hovered ? "#12FFFFFF" : "transparent"))
+                border.width: dropTarget || selected ? 1 : 0
+                border.color: dropTarget ? "#DDF7FFFF" : "#4FDDF6FF"
+                scale: (hovered && !selected) || dropTarget ? sidebar.hoverZoom : 1
 
                 onPreferredIconChanged: currentIcon = preferredIcon
 
@@ -86,7 +110,7 @@ Item {
                     anchors.left: parent.left
                     anchors.verticalCenter: parent.verticalCenter
                     width: 2
-                    height: selected ? 24 : 0
+                    height: selected || dropTarget ? 24 : 0
                     radius: 1
                     color: "#B8F2FDFF"
 
@@ -147,12 +171,12 @@ Item {
                     anchors.left: iconBox.right
                     anchors.leftMargin: 9
                     anchors.right: parent.right
-                    anchors.rightMargin: 8
+                    anchors.rightMargin: sidebar.editMode && folder ? 31 : 8
                     anchors.verticalCenter: parent.verticalCenter
                     text: folder && folder.displayName ? folder.displayName : "FOLDER"
-                    color: folderButton.selected ? "#FFFFFFFF" : "#A8D7E6F0"
+                    color: folderButton.dropTarget || folderButton.selected ? "#FFFFFFFF" : "#A8D7E6F0"
                     font.pixelSize: 10
-                    font.bold: folderButton.selected
+                    font.bold: folderButton.dropTarget || folderButton.selected
                     font.letterSpacing: 1.0
                     elide: Text.ElideRight
                 }
@@ -165,6 +189,29 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     enabled: !!folderButton.folder
                     onClicked: sidebar.folderSelected(folderButton.folder.id)
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 7
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 22
+                    height: 22
+                    radius: 4
+                    visible: sidebar.editMode && folder
+                    color: folderEditMouse.containsMouse ? "#22FFFFFF" : "#0CFFFFFF"
+                    border.width: folderEditMouse.containsMouse ? 1 : 0
+                    border.color: "#66DDF6FF"
+
+                    Text { anchors.centerIn: parent; text: "\u270e"; color: "#B8F2FDFF"; font.pixelSize: 14; font.bold: true }
+
+                    MouseArea {
+                        id: folderEditMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { mouse.accepted = true; sidebar.folderEditRequested(folderButton.folder.id) }
+                    }
                 }
             }
         }
@@ -190,32 +237,11 @@ Item {
             border.width: openShortcutsMouse.containsMouse ? 1 : 0
             border.color: "#66DDF6FF"
 
-            Item {
+            Text {
                 anchors.centerIn: parent
-                width: 16
-                height: 13
-
-                Rectangle {
-                    x: 1
-                    y: 5
-                    width: 14
-                    height: 7
-                    radius: 2
-                    color: "#24DDF6FF"
-                    border.width: 1
-                    border.color: "#A8DDF6FF"
-                }
-
-                Rectangle {
-                    x: 3
-                    y: 2
-                    width: 7
-                    height: 4
-                    radius: 1
-                    color: "#24DDF6FF"
-                    border.width: 1
-                    border.color: "#A8DDF6FF"
-                }
+                text: "\u2699"
+                color: "#B8F2FDFF"
+                font.pixelSize: 17
             }
 
             MouseArea {
@@ -224,7 +250,7 @@ Item {
                 anchors.fill: parent
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
-                onClicked: sidebar.openShortcutsRequested()
+                onClicked: sidebar.settingsRequested()
             }
         }
 
@@ -306,6 +332,26 @@ Item {
                 hoverEnabled: true
                 cursorShape: Qt.PointingHandCursor
                 onClicked: sidebar.editModeRequested()
+            }
+        }
+
+        Rectangle {
+            width: 28
+            height: 28
+            radius: 6
+            visible: sidebar.editMode
+            color: addFolderMouse.containsMouse ? "#18FFFFFF" : "#08FFFFFF"
+            border.width: addFolderMouse.containsMouse ? 1 : 0
+            border.color: "#66DDF6FF"
+
+            Text { anchors.centerIn: parent; text: "+"; color: "#B8F2FDFF"; font.pixelSize: 19; font.bold: true }
+
+            MouseArea {
+                id: addFolderMouse
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sidebar.folderCreateRequested()
             }
         }
     }
