@@ -38,6 +38,8 @@ T.Widget {
     property var allGames: buildAllGames()
     property var folders: buildFolderList()
     property var activeGames: selectGamesForFolder()
+    property var reorderPreviewGames: null
+    property var displayedGames: reorderPreviewGames !== null ? reorderPreviewGames : activeGames
 
     property bool closing: false
     property bool launching: false
@@ -62,17 +64,35 @@ T.Widget {
     property bool editorImageDropActive: false
     property string editorPreviewSource: ""
     property string editorPreviewFallback: ""
+    property bool editorIsNewCard: false
+    property var editorNewCardDraft: null
+    property string editorSourcePath: ""
+    property bool fileDropActive: false
+    property string fileDropStatus: ""
     property string cardDataAction: ""
+    property bool cardReorderActive: false
+    property bool cardReorderSaving: false
+    property string cardReorderSourceId: ""
+    property string cardReorderTargetId: ""
+    property bool cardReorderInsertAfter: false
+    property var cardReorderOriginalGames: []
+    property string cardReorderError: ""
     property bool cardRemovalConfirmOpen: false
     property bool cardRemovalSaving: false
     property string cardRemovalCardId: ""
     property string cardRemovalTitle: ""
     property string cardRemovalError: ""
 
-    property int gameCount: activeGames && activeGames.length ? activeGames.length : 0
+    property int gameCount: displayedGames && displayedGames.length ? displayedGames.length : 0
     property int gridColumns: calculateGridColumns()
     property real cardWidth: calculateCardWidth()
     property real cardHeight: Math.max(118, Math.min(widget.cardMaxHeight, Math.round(widget.cardWidth * 0.62)))
+
+    onSelectedFolderIdChanged: cancelCardReorder()
+    onEditModeChanged: {
+        if (!editMode)
+            cancelCardReorder()
+    }
 
     function calculateGridColumns() {
         var configured = Math.max(1, maxColumnsForSelectedFolder())
@@ -184,6 +204,8 @@ T.Widget {
         if (closing || launching || cardEditorOpen || cardRemovalConfirmOpen)
             return
 
+        if (editMode)
+            cancelCardReorder()
         editMode = !editMode
         editorCardId = ""
     }
@@ -201,6 +223,9 @@ T.Widget {
 
         var userData = getCardUserData(normalizedCardId)
         editorCardId = normalizedCardId
+        editorIsNewCard = false
+        editorNewCardDraft = null
+        editorSourcePath = ConfigLoader.normalizeString(game.sourcePath, "")
         editorAutomaticTitle = ConfigLoader.normalizeString(game.automaticTitle, ConfigLoader.normalizeString(game.title, "GAME"))
         editorAutomaticImage = ConfigLoader.normalizeString(game.automaticImage, ConfigLoader.normalizeString(game.image, "assets/placeholder.png"))
         editorExistingCustomImage = userData.customImage
@@ -226,6 +251,103 @@ T.Widget {
         }
 
         return null
+    }
+
+    function normalizeSourcePath(path) {
+        var value = trimEditorText(path)
+        if (value.indexOf("file:///") === 0)
+            value = decodeURIComponent(value.slice(8))
+        else if (value.indexOf("file://") === 0)
+            value = "\\\\" + decodeURIComponent(value.slice(7))
+
+        return value.replace(/\//g, "\\").replace(/^\s+|\s+$/g, "").toLowerCase()
+    }
+
+    function sourcePathForGame(game) {
+        return ConfigLoader.normalizeString(game && game.sourcePath, ConfigLoader.normalizeString(game && game.shortcut, ""))
+    }
+
+    function findGameBySourcePath(sourcePath) {
+        var key = normalizeSourcePath(sourcePath)
+        for (var i = 0; key && allGames && i < allGames.length; ++i) {
+            if (normalizeSourcePath(sourcePathForGame(allGames[i])) === key)
+                return allGames[i]
+        }
+        return null
+    }
+
+    function nextOrderForSelectedFolder() {
+        var largest = -1
+        for (var i = 0; activeGames && i < activeGames.length; ++i) {
+            if (activeGames[i].hasCustomOrder)
+                largest = Math.max(largest, activeGames[i].customOrder)
+        }
+        return largest + 1
+    }
+
+    function requestManualFileDrop(urls) {
+        fileDropActive = false
+        if (!urls || urls.length !== 1) {
+            fileDropStatus = "DROP ONE .LNK, .URL OR .EXE FILE"
+            return
+        }
+        if (!editMode || cardEditorOpen || cardRemovalConfirmOpen) {
+            fileDropStatus = "ENABLE EDIT MODE TO ADD A GAME"
+            return
+        }
+
+        var sourcePath = String(urls[0])
+        var lower = sourcePath.split(/[?#]/)[0].toLowerCase()
+        if (!/\.(lnk|url|exe)$/.test(lower)) {
+            fileDropStatus = "ONLY .LNK, .URL OR .EXE FILES ARE SUPPORTED"
+            return
+        }
+        if (findGameBySourcePath(sourcePath)) {
+            fileDropStatus = "THIS GAME IS ALREADY ADDED"
+            return
+        }
+
+        fileDropStatus = "PREPARING NEW CARD..."
+        if (!shortcutDiscovery.prepareManualCard({
+            sourcePath: sourcePath,
+            folderId: selectedFolderId === "all" ? "" : selectedFolderId,
+            order: nextOrderForSelectedFolder()
+        }))
+            fileDropStatus = "ADD IS TEMPORARILY UNAVAILABLE"
+    }
+
+    function handleManualCardPrepared(draft, error) {
+        if (error || !draft) {
+            fileDropStatus = error || "COULD NOT PREPARE NEW CARD"
+            return
+        }
+
+        fileDropStatus = ""
+        openNewCardEditor(draft)
+    }
+
+    function openNewCardEditor(draft) {
+        if (!editMode || cardEditorOpen || !draft || !draft.cardId)
+            return
+
+        editorIsNewCard = true
+        editorNewCardDraft = draft
+        editorCardId = String(draft.cardId)
+        editorSourcePath = ConfigLoader.normalizeString(draft.sourcePath, "")
+        editorAutomaticTitle = ConfigLoader.normalizeString(draft.automaticTitle, "GAME")
+        editorAutomaticImage = "assets/placeholder.png"
+        editorExistingCustomImage = ""
+        editorImageDraft = ""
+        editorImagePendingSource = ""
+        editorImageResetRequested = false
+        editorImageDropActive = false
+        editorImagePathField.text = ""
+        editorTitleField.text = ""
+        editorDescriptionField.text = ""
+        cardEditorSaveError = ""
+        refreshEditorPreview()
+        cardEditorOpen = true
+        editorTitleField.forceActiveFocus()
     }
 
     function trimEditorText(value) {
@@ -332,14 +454,27 @@ T.Widget {
         cardEditorSaveError = ""
 
         cardEditorSaving = true
-        cardDataAction = "editor"
+        cardDataAction = editorIsNewCard ? "create" : "editor"
 
-        if (!updateCardUserData(editorCardId, {
+        var editorData = {
             customTitle: trimEditorText(editorTitleField.text),
             description: description,
             customImage: editorImageResetRequested ? "" : editorExistingCustomImage,
             customImageSource: editorImageResetRequested ? "" : editorImagePendingSource
-        })) {
+        }
+
+        if (editorIsNewCard && editorNewCardDraft) {
+            editorData.sourcePath = editorNewCardDraft.sourcePath
+            editorData.targetPath = editorNewCardDraft.targetPath
+            editorData.sourceType = editorNewCardDraft.sourceType
+            editorData.automaticTitle = editorNewCardDraft.automaticTitle
+            editorData.folderId = editorNewCardDraft.folderId
+            editorData.order = editorNewCardDraft.order
+        }
+
+        var saved = editorIsNewCard ? shortcutDiscovery.createManualCard(editorCardId, editorData)
+                                     : updateCardUserData(editorCardId, editorData)
+        if (!saved) {
             cardEditorSaving = false
             cardDataAction = ""
             cardEditorSaveError = "SAVE IS TEMPORARILY UNAVAILABLE"
@@ -356,10 +491,13 @@ T.Widget {
         editorCardId = ""
         editorImagePendingSource = ""
         editorImageDropActive = false
+        editorIsNewCard = false
+        editorNewCardDraft = null
+        editorSourcePath = ""
     }
 
     function handleCardDataUpdateFinished(cardId, success, error) {
-        if (cardDataAction === "editor" && cardEditorSaving && String(cardId) === editorCardId) {
+        if ((cardDataAction === "editor" || cardDataAction === "create") && cardEditorSaving && String(cardId) === editorCardId) {
             cardEditorSaving = false
             cardDataAction = ""
 
@@ -369,8 +507,23 @@ T.Widget {
                 editorCardId = ""
                 editorImagePendingSource = ""
                 editorImageDropActive = false
+                editorIsNewCard = false
+                editorNewCardDraft = null
+                editorSourcePath = ""
             } else {
                 cardEditorSaveError = error || "SAVE FAILED"
+            }
+            return
+        }
+
+        if (cardDataAction === "reorder" && cardReorderSaving && String(cardId) === "orders") {
+            cardDataAction = ""
+
+            if (success) {
+                resetCardReorder()
+            } else {
+                cardReorderError = error || "ORDER SAVE FAILED"
+                resetCardReorder()
             }
             return
         }
@@ -467,7 +620,13 @@ T.Widget {
             customImage: current.customImage,
             folderId: current.folderId,
             order: current.hasOrder ? current.order : null,
-            isHidden: current.isHidden
+            folderOrders: current.folderOrders,
+            isHidden: current.isHidden,
+            sourcePath: current.sourcePath,
+            targetPath: current.targetPath,
+            launchPath: current.launchPath,
+            sourceType: current.sourceType,
+            automaticTitle: current.automaticTitle
         }
 
         if (changes && typeof changes === "object") {
@@ -532,7 +691,13 @@ T.Widget {
         result.customFolderId = userData.folderId
         result.customOrder = userData.order
         result.hasCustomOrder = userData.hasOrder
+        result.folderOrders = userData.folderOrders
         result.isHidden = userData.isHidden
+        result.sourcePath = userData.sourcePath
+        result.targetPath = userData.targetPath
+        result.launchPath = userData.launchPath
+        result.sourceType = userData.sourceType
+        result.automaticTitle = userData.automaticTitle || result.automaticTitle
         result.title = getEffectiveCardTitle(result)
         result.image = getEffectiveCardImage(result)
 
@@ -548,7 +713,25 @@ T.Widget {
         return folderId && findConfiguredFolder(folderId) ? folderId : ""
     }
 
-    function sortGamesByCustomOrder(games) {
+    function orderForGameInFolder(game, folderId) {
+        var key = ConfigLoader.normalizeString(folderId, "").toLowerCase()
+        var folderOrders = game && game.folderOrders
+
+        if (key && folderOrders && typeof folderOrders === "object" && folderOrders.hasOwnProperty(key)) {
+            var scopedOrder = parseInt(folderOrders[key], 10)
+            if (!isNaN(scopedOrder) && scopedOrder >= 0)
+                return scopedOrder
+        }
+
+        // Existing single order values remain valid for their original custom
+        // folder and are gradually complemented by scoped folderOrders on drop.
+        if (game && game.hasCustomOrder && (key === "all" || customFolderForGame(game) === key))
+            return game.customOrder
+
+        return -1
+    }
+
+    function sortGamesByCustomOrder(games, folderId) {
         var indexed = []
 
         for (var i = 0; games && i < games.length; ++i) {
@@ -559,11 +742,13 @@ T.Widget {
         }
 
         indexed.sort(function(left, right) {
-            var leftHasOrder = left.game && left.game.hasCustomOrder === true
-            var rightHasOrder = right.game && right.game.hasCustomOrder === true
+            var leftOrder = orderForGameInFolder(left.game, folderId)
+            var rightOrder = orderForGameInFolder(right.game, folderId)
+            var leftHasOrder = leftOrder >= 0
+            var rightHasOrder = rightOrder >= 0
 
-            if (leftHasOrder && rightHasOrder && left.game.customOrder !== right.game.customOrder)
-                return left.game.customOrder - right.game.customOrder
+            if (leftHasOrder && rightHasOrder && leftOrder !== rightOrder)
+                return leftOrder - rightOrder
 
             if (leftHasOrder !== rightHasOrder)
                 return leftHasOrder ? -1 : 1
@@ -577,6 +762,191 @@ T.Widget {
             result.push(indexed[index].game)
 
         return result
+    }
+
+    function indexOfCardId(games, cardId) {
+        var key = ConfigLoader.normalizeString(cardId, "")
+
+        for (var i = 0; games && i < games.length; ++i) {
+            if (cardIdForGame(games[i]) === key)
+                return i
+        }
+
+        return -1
+    }
+
+    function resetCardReorder() {
+        reorderPreviewGames = null
+        cardReorderActive = false
+        cardReorderSaving = false
+        cardReorderSourceId = ""
+        cardReorderTargetId = ""
+        cardReorderInsertAfter = false
+        cardReorderOriginalGames = []
+    }
+
+    function beginCardReorder(cardId) {
+        var key = ConfigLoader.normalizeString(cardId, "")
+
+        if (!editMode || cardEditorOpen || cardRemovalConfirmOpen || cardReorderSaving || !key || (activeGames && activeGames.length < 2))
+            return
+
+        if (cardReorderActive)
+            return
+
+        var index = indexOfCardId(activeGames, key)
+        if (index < 0)
+            return
+
+        cardReorderOriginalGames = activeGames.slice(0)
+        reorderPreviewGames = activeGames.slice(0)
+        cardReorderSourceId = key
+        cardReorderTargetId = ""
+        cardReorderInsertAfter = false
+        cardReorderError = ""
+        cardReorderActive = true
+    }
+
+    function previewCardReorder(sourceCardId, targetCardId, insertAfter) {
+        if (!cardReorderActive || sourceCardId !== cardReorderSourceId || !reorderPreviewGames)
+            return
+
+        if (sourceCardId === targetCardId)
+            return
+
+        var preview = reorderPreviewGames.slice(0)
+        var fromIndex = indexOfCardId(preview, sourceCardId)
+        var targetIndex = indexOfCardId(preview, targetCardId)
+        if (fromIndex < 0 || targetIndex < 0)
+            return
+
+        var nextIndex = targetIndex + (insertAfter ? 1 : 0)
+        var movingGame = preview.splice(fromIndex, 1)[0]
+        if (fromIndex < nextIndex)
+            nextIndex -= 1
+
+        if (nextIndex === fromIndex) {
+            cardReorderTargetId = targetCardId
+            cardReorderInsertAfter = insertAfter
+            return
+        }
+
+        preview.splice(nextIndex, 0, movingGame)
+        reorderPreviewGames = preview
+        cardReorderTargetId = targetCardId
+        cardReorderInsertAfter = insertAfter
+    }
+
+    function clearCardReorderPreview(sourceCardId) {
+        if (!cardReorderActive || sourceCardId !== cardReorderSourceId)
+            return
+
+        reorderPreviewGames = cardReorderOriginalGames.slice(0)
+        cardReorderTargetId = ""
+        cardReorderInsertAfter = false
+    }
+
+    function previewCardReorderAt(sourceCardId, gridX, gridY) {
+        if (!cardReorderActive || sourceCardId !== cardReorderSourceId)
+            return
+
+        var columnWidth = cardWidth + cardSpacing
+        var rowHeight = cardHeight + cardSpacing
+        var column = Math.floor(gridX / columnWidth)
+        var row = Math.floor(gridY / rowHeight)
+        var localX = gridX - column * columnWidth
+        var localY = gridY - row * rowHeight
+
+        if (gridX < 0 || gridY < 0 || column < 0 || column >= gridColumns || row < 0
+                || localX > cardWidth || localY > cardHeight) {
+            clearCardReorderPreview(sourceCardId)
+            return
+        }
+
+        var targetIndex = row * gridColumns + column
+        if (!displayedGames || targetIndex < 0 || targetIndex >= displayedGames.length) {
+            clearCardReorderPreview(sourceCardId)
+            return
+        }
+
+        var targetCardId = cardIdForGame(displayedGames[targetIndex])
+        if (targetCardId === sourceCardId) {
+            clearCardReorderPreview(sourceCardId)
+            return
+        }
+
+        previewCardReorder(sourceCardId, targetCardId, localY >= cardHeight * 0.5)
+    }
+
+    function cancelCardReorder() {
+        if (!cardReorderActive || cardReorderSaving)
+            return
+
+        resetCardReorder()
+    }
+
+    function finishCardReorderGesture(cardId) {
+        Qt.callLater(function() {
+            if (cardReorderActive && !cardReorderSaving && cardReorderSourceId === cardId)
+                cancelCardReorder()
+        })
+    }
+
+    function commitCardReorderFromPointer(sourceCardId) {
+        if (!cardReorderActive || cardReorderSaving || sourceCardId !== cardReorderSourceId)
+            return
+
+        if (!cardReorderTargetId) {
+            cancelCardReorder()
+            return
+        }
+
+        commitCardReorder(sourceCardId, cardReorderTargetId, cardReorderInsertAfter)
+    }
+
+    function commitCardReorder(sourceCardId, targetCardId, insertAfter) {
+        if (!cardReorderActive || cardReorderSaving || sourceCardId !== cardReorderSourceId)
+            return
+
+        previewCardReorder(sourceCardId, targetCardId, insertAfter)
+
+        if (!reorderPreviewGames || !cardReorderTargetId) {
+            cancelCardReorder()
+            return
+        }
+
+        var changed = false
+        for (var originalIndex = 0; originalIndex < cardReorderOriginalGames.length; ++originalIndex) {
+            if (cardIdForGame(cardReorderOriginalGames[originalIndex]) !== cardIdForGame(reorderPreviewGames[originalIndex])) {
+                changed = true
+                break
+            }
+        }
+        if (!changed) {
+            cancelCardReorder()
+            return
+        }
+
+        var orders = []
+        for (var i = 0; i < reorderPreviewGames.length; ++i) {
+            orders.push({
+                cardId: cardIdForGame(reorderPreviewGames[i]),
+                order: i
+            })
+        }
+
+        cardReorderSaving = true
+        cardDataAction = "reorder"
+        cardReorderError = ""
+
+        if (!shortcutDiscovery.updateCardOrders({
+            folderId: selectedFolderId,
+            orders: orders
+        })) {
+            cardDataAction = ""
+            cardReorderError = "ORDER SAVE IS TEMPORARILY UNAVAILABLE"
+            resetCardReorder()
+        }
     }
 
     function withCustomDescription(game) {
@@ -612,6 +982,36 @@ T.Widget {
 
             if (!legacyGame.isHidden)
                 result.push(legacyGame)
+        }
+
+        var storedCardData = shortcutDiscovery.cardData || ({})
+        for (var storedCardId in storedCardData) {
+            var storedData = getCardUserData(storedCardId)
+            if (!storedData.sourcePath || storedData.isHidden)
+                continue
+
+            var alreadyPresent = false
+            for (var resultIndex = 0; resultIndex < result.length; ++resultIndex) {
+                if (normalizeSourcePath(sourcePathForGame(result[resultIndex])) === normalizeSourcePath(storedData.sourcePath)) {
+                    alreadyPresent = true
+                    break
+                }
+            }
+            if (alreadyPresent)
+                continue
+
+            result.push(withCardUserData({
+                id: storedCardId,
+                cardId: storedCardId,
+                title: storedData.automaticTitle || "GAME",
+                shortcut: storedData.launchPath || storedData.sourcePath,
+                sourcePath: storedData.sourcePath,
+                targetPath: storedData.targetPath,
+                launchPath: storedData.launchPath,
+                sourceType: storedData.sourceType,
+                image: "assets/placeholder.png",
+                automaticImage: "assets/placeholder.png"
+            }))
         }
 
         return result
@@ -666,7 +1066,7 @@ T.Widget {
 
     function selectGamesForFolder() {
         if (widget.selectedFolderId === "all")
-            return widget.allGames
+            return sortGamesByCustomOrder(widget.allGames, "all")
 
         var folder = findConfiguredFolder(widget.selectedFolderId)
 
@@ -701,7 +1101,7 @@ T.Widget {
             }
         }
 
-        return sortGamesByCustomOrder(result)
+        return sortGamesByCustomOrder(result, widget.selectedFolderId)
     }
 
     function resetPanel() {
@@ -720,6 +1120,11 @@ T.Widget {
         cardEditorSaveError = ""
         editorImagePendingSource = ""
         editorImageDropActive = false
+        editorIsNewCard = false
+        editorNewCardDraft = null
+        editorSourcePath = ""
+        resetCardReorder()
+        cardReorderError = ""
         cardDataAction = ""
         cardRemovalConfirmOpen = false
         cardRemovalSaving = false
@@ -774,6 +1179,8 @@ T.Widget {
         cardEditorSaveError = ""
         editorImagePendingSource = ""
         editorImageDropActive = false
+        resetCardReorder()
+        cardReorderError = ""
         cardDataAction = ""
         cardRemovalConfirmOpen = false
         cardRemovalSaving = false
@@ -883,6 +1290,7 @@ T.Widget {
         shortcutsDir: widget.shortcutsDir
         onRefreshSucceeded: widget.handleDiscoveryRefreshed(result)
         onCardDataUpdateFinished: widget.handleCardDataUpdateFinished(cardId, success, error)
+        onManualCardPrepared: widget.handleManualCardPrepared(draft, error)
     }
 
     menu: Menu {
@@ -1105,10 +1513,12 @@ T.Widget {
             anchors.right: closeButton.left
             anchors.rightMargin: 10
             y: 19
-            text: widget.editMode ? (widget.editorCardId ? "EDIT CARD // " + widget.editorCardId : "EDIT MODE")
+            text: widget.cardReorderError ? widget.cardReorderError
+                                  : (widget.fileDropStatus ? widget.fileDropStatus
+                                  : (widget.editMode ? (widget.editorCardId ? "EDIT CARD // " + widget.editorCardId : "EDIT MODE")
                                   : (widget.launchFailed ? "LAUNCH FAILED // " + widget.launchingTitle
-                                                         : (widget.launching ? "LAUNCHING // " + widget.launchingTitle : "READY"))
-            color: widget.editMode ? "#DDF7FFFF" : (widget.launchFailed ? "#FFFFB4B4" : (widget.launching ? "#E9FFFFFF" : "#6FFFFFFF"))
+                                                         : (widget.launching ? "LAUNCHING // " + widget.launchingTitle : "READY"))))
+            color: widget.cardReorderError ? "#FFFFB4B4" : (widget.editMode ? "#DDF7FFFF" : (widget.launchFailed ? "#FFFFB4B4" : (widget.launching ? "#E9FFFFFF" : "#6FFFFFFF")))
             font.pixelSize: 8
             font.letterSpacing: 1.0
             horizontalAlignment: Text.AlignRight
@@ -1188,11 +1598,15 @@ T.Widget {
                         GameCard {
                             width: widget.cardWidth
                             height: widget.cardHeight
-                            game: widget.activeGames[index]
-                            cardId: widget.cardIdForGame(widget.activeGames[index])
+                            game: widget.displayedGames[index]
+                            cardId: widget.cardIdForGame(widget.displayedGames[index])
                             gameNumber: index + 1
                             hoverZoom: widget.hoverZoom
                             editMode: widget.editMode
+                            reorderEnabled: !widget.cardEditorOpen && !widget.cardRemovalConfirmOpen && !widget.cardReorderSaving
+                            reorderDragging: widget.cardReorderActive && widget.cardReorderSourceId === cardId
+                            reorderInsertBefore: widget.cardReorderActive && widget.cardReorderTargetId === cardId && !widget.cardReorderInsertAfter
+                            reorderInsertAfter: widget.cardReorderActive && widget.cardReorderTargetId === cardId && widget.cardReorderInsertAfter
                             enabled: !widget.launching && !widget.closing
                             onLaunchRequested: {
                                 if (!widget.editMode)
@@ -1200,6 +1614,10 @@ T.Widget {
                             }
                             onEditRequested: widget.openCardEditor(requestedCardId)
                             onRemoveRequested: widget.requestCardRemoval(requestedCardId)
+                            onReorderStarted: widget.beginCardReorder(requestedCardId)
+                            onReorderPointerMoved: widget.previewCardReorderAt(requestedCardId, gridX, gridY)
+                            onReorderDropped: widget.commitCardReorderFromPointer(requestedCardId)
+                            onReorderFinished: widget.finishCardReorderGesture(requestedCardId)
                         }
                     }
                 }
@@ -1228,12 +1646,54 @@ T.Widget {
 
                     Text {
                         anchors.horizontalCenter: parent.horizontalCenter
-                        text: widget.selectedFolderId === "all" ? "ADD .LNK OR .URL FILES TO SHORTCUTSDIR" : "CHECK FOLDER GAME NAMES IN CONFIG"
+                        text: widget.selectedFolderId === "all" ? "DROP .LNK, .URL OR .EXE IN EDIT MODE" : "CHECK FOLDER GAME NAMES IN CONFIG"
                         color: "#8ED7E6F0"
                         font.pixelSize: 8
                         font.letterSpacing: 1.0
                     }
                 }
+            }
+        }
+
+        DropArea {
+            id: gameFileDropArea
+
+            anchors.fill: parent
+            z: 6
+            enabled: !widget.cardEditorOpen && !widget.cardRemovalConfirmOpen && !widget.cardEditorSaving
+
+            onEntered: {
+                if (drag.hasUrls) {
+                    widget.fileDropActive = true
+                    drag.accepted = true
+                }
+            }
+
+            onExited: widget.fileDropActive = false
+
+            onDropped: {
+                drop.accepted = true
+                widget.requestManualFileDrop(drop.urls)
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                visible: widget.fileDropActive
+                radius: panel.radius
+                color: "#A0142634"
+                border.width: 1
+                border.color: widget.editMode ? "#DDF7FFFF" : "#FFFFC0A0"
+            }
+
+            Text {
+                anchors.centerIn: parent
+                visible: widget.fileDropActive
+                text: widget.editMode ? "DROP ONE .LNK, .URL OR .EXE TO ADD A GAME"
+                                      : "ENABLE EDIT MODE TO ADD A GAME"
+                color: "#FFFFFFFF"
+                font.pixelSize: 12
+                font.bold: true
+                font.letterSpacing: 1.0
             }
         }
 
@@ -1296,7 +1756,7 @@ T.Widget {
                         anchors.left: parent.left
                         anchors.leftMargin: 16
                         anchors.verticalCenter: parent.verticalCenter
-                        text: "CARD EDITOR // " + widget.editorCardId
+                        text: (widget.editorIsNewCard ? "ADD GAME // " : "CARD EDITOR // ") + widget.editorCardId
                         color: "#F4FFFFFF"
                         font.pixelSize: 11
                         font.bold: true
@@ -1564,7 +2024,7 @@ T.Widget {
                     x: 166
                     y: 101
                     width: parent.width - x - 18
-                    text: "AUTO // " + widget.editorAutomaticTitle
+                    text: widget.editorIsNewCard ? "SOURCE // " + widget.editorSourcePath : "AUTO // " + widget.editorAutomaticTitle
                     color: "#6ED7E6F0"
                     font.pixelSize: 7
                     font.letterSpacing: 0.7
@@ -1637,7 +2097,7 @@ T.Widget {
 
                     Text {
                         anchors.centerIn: parent
-                        text: widget.cardEditorSaving ? "SAVING" : "SAVE"
+                        text: widget.cardEditorSaving ? "SAVING" : (widget.editorIsNewCard ? "ADD" : "SAVE")
                         color: "#FFFFFFFF"
                         font.pixelSize: 8
                         font.bold: true

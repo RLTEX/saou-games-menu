@@ -7,7 +7,8 @@ param(
     [string] $Operation = "discover",
     [string] $CardId,
     [string] $CardDataEncoded,
-    [string] $CustomImageDirectory
+    [string] $CustomImageDirectory,
+    [string] $ManagedShortcutDirectory
 )
 
 $ErrorActionPreference = "Stop"
@@ -117,6 +118,64 @@ function Normalize-CardId {
     return ([string] $Value).Trim()
 }
 
+function Normalize-ManualSourcePath {
+    param([string] $Value)
+
+    $path = ([string] $Value).Trim()
+
+    if (-not $path) { return "" }
+
+    if ($path.StartsWith("file:", [System.StringComparison]::OrdinalIgnoreCase)) {
+        try { $path = (New-Object System.Uri($path)).LocalPath } catch { throw "Source path is invalid" }
+    }
+
+    return [System.IO.Path]::GetFullPath($path)
+}
+
+function Get-ManualSourceType {
+    param([string] $Path)
+
+    $extension = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+    if ($extension -notin @(".lnk", ".url", ".exe")) { throw "Only .lnk, .url, and .exe files can be added" }
+    return $extension.TrimStart(".")
+}
+
+function Normalize-FolderOrderKey {
+    param([string] $Value)
+
+    $key = ([string] $Value).Trim().ToLowerInvariant()
+
+    if (-not $key) { throw "Folder ID is required for card ordering" }
+    if ($key -notmatch "^[a-z0-9][a-z0-9_-]*$") { throw "Folder ID is invalid for card ordering" }
+
+    return $key
+}
+
+function Normalize-FolderOrders {
+    param([object] $Value)
+
+    $result = [ordered]@{}
+
+    if ($null -eq $Value) { return $result }
+
+    if ($Value -is [System.Collections.IDictionary]) {
+        $entries = @($Value.GetEnumerator())
+        foreach ($entry in $entries) {
+            $key = Normalize-FolderOrderKey -Value ([string] $entry.Key)
+            $order = 0
+            if ([int]::TryParse([string] $entry.Value, [ref] $order) -and $order -ge 0) { $result[$key] = $order }
+        }
+    } else {
+        foreach ($property in @($Value.PSObject.Properties)) {
+            $key = Normalize-FolderOrderKey -Value ([string] $property.Name)
+            $order = 0
+            if ([int]::TryParse([string] $property.Value, [ref] $order) -and $order -ge 0) { $result[$key] = $order }
+        }
+    }
+
+    return $result
+}
+
 function Normalize-CardData {
     param(
         [object] $Data
@@ -142,10 +201,32 @@ function Normalize-CardData {
         }
     }
 
+    $folderOrders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $Data -Name "folderOrders")
+    if ($folderOrders.Count -gt 0) {
+        $result.folderOrders = [PSCustomObject] $folderOrders
+    }
+
     $hiddenValue = Get-ObjectPropertyValue -Object $Data -Name "isHidden"
 
     if ($hiddenValue -eq $true -or ([string] $hiddenValue).Trim().ToLowerInvariant() -eq "true") {
         $result.isHidden = $true
+    }
+
+    $sourcePath = Get-ObjectPropertyValue -Object $Data -Name "sourcePath"
+
+    if (([string] $sourcePath).Trim()) {
+        $normalizedSourcePath = Normalize-ManualSourcePath -Value $sourcePath
+        $result.sourcePath = $normalizedSourcePath
+        $result.sourceType = Get-ManualSourceType -Path $normalizedSourcePath
+
+        $automaticTitle = ([string] (Get-ObjectPropertyValue -Object $Data -Name "automaticTitle")).Trim()
+        $result.automaticTitle = if ($automaticTitle) { $automaticTitle } else { [System.IO.Path]::GetFileNameWithoutExtension($normalizedSourcePath) }
+
+        $targetPath = ([string] (Get-ObjectPropertyValue -Object $Data -Name "targetPath")).Trim()
+        if ($targetPath) { $result.targetPath = $targetPath }
+
+        $launchPath = ([string] (Get-ObjectPropertyValue -Object $Data -Name "launchPath")).Trim()
+        if ($launchPath) { $result.launchPath = $launchPath }
     }
 
     if ($result.Count -eq 0) {
@@ -185,6 +266,30 @@ function Get-ManagedImageDirectory {
     }
 
     return Join-Path $localAppData "SAO Utils\Games Menu\custom-images"
+}
+
+function Get-ManagedShortcutDirectory {
+    if ($ManagedShortcutDirectory) { return [System.IO.Path]::GetFullPath($ManagedShortcutDirectory) }
+    $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+    if ([string]::IsNullOrWhiteSpace($localAppData)) { throw "Local application data directory is unavailable" }
+    return Join-Path $localAppData "SAO Utils\Games Menu\shortcuts"
+}
+
+function Import-CardShortcut {
+    param([string] $CardId, [string] $SourceFile)
+
+    $sourcePath = Normalize-ManualSourcePath -Value $SourceFile
+    $sourceType = Get-ManualSourceType -Path $sourcePath
+    if ($sourceType -eq "exe") { return $sourcePath }
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Selected shortcut file was not found" }
+
+    $directory = Get-ManagedShortcutDirectory
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
+    $fileName = (Get-SafeCardFileStem -CardId $CardId) + "-" + [System.Guid]::NewGuid().ToString("N") + "." + $sourceType
+    $destination = Join-Path $directory $fileName
+    Copy-Item -LiteralPath $sourcePath -Destination $destination -ErrorAction Stop
+    if (-not (Test-Path -LiteralPath $destination -PathType Leaf)) { throw "Shortcut copy could not be verified" }
+    return [System.IO.Path]::GetFullPath($destination)
 }
 
 function Get-SafeCardFileStem {
@@ -546,6 +651,33 @@ function Set-CardData {
     }
 
     return $normalized
+}
+
+function Find-CardIdByManualSource {
+    param([object] $State, [string] $SourcePath)
+
+    $key = (Normalize-ManualSourcePath -Value $SourcePath).ToLowerInvariant()
+    foreach ($entry in $State.cardData.GetEnumerator()) {
+        $candidate = [string] (Get-ObjectPropertyValue -Object $entry.Value -Name "sourcePath")
+        if ($candidate -and (Normalize-ManualSourcePath -Value $candidate).ToLowerInvariant() -eq $key) {
+            return [string] $entry.Key
+        }
+    }
+    return ""
+}
+
+function Add-ManualIdentity {
+    param([object] $State, [string] $CardId, [string] $SourcePath, [string] $Title)
+
+    $id = [int] $CardId
+    $launchKey = "manual:" + (Normalize-ManualSourcePath -Value $SourcePath).ToLowerInvariant()
+    foreach ($item in @($State.items)) {
+        if ([int] $item.id -eq $id -and [string] $item.launchKey -ne $launchKey) { throw "Card ID is already in use" }
+        if ([string] $item.launchKey -eq $launchKey) { throw "This game is already added" }
+    }
+
+    $State.items = @($State.items) + @([PSCustomObject]@{ id = $id; launchKey = $launchKey; title = $Title })
+    if ($State.nextId -le $id) { $State.nextId = $id + 1 }
 }
 
 function Preserve-ConfigTitleAsCustomTitle {
@@ -1070,11 +1202,116 @@ function Update-Config {
     return $result
 }
 
-if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
+if ($Operation -eq "prepare-manual-card") {
+    $cardDataUpdateError = ""
+    $draft = $null
+
+    try {
+        $state = Read-State -Path $StatePath
+        $data = Decode-CardData -EncodedValue $CardDataEncoded
+        $sourcePath = Normalize-ManualSourcePath -Value ([string] (Get-ObjectPropertyValue -Object $data -Name "sourcePath"))
+        $sourceType = Get-ManualSourceType -Path $sourcePath
+
+        if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Selected file was not found" }
+        if (Find-CardIdByManualSource -State $state -SourcePath $sourcePath) { throw "This game is already added" }
+
+        $folderId = ([string] (Get-ObjectPropertyValue -Object $data -Name "folderId")).Trim()
+        $order = 0
+        [void] [int]::TryParse([string] (Get-ObjectPropertyValue -Object $data -Name "order"), [ref] $order)
+        $draft = [PSCustomObject]@{
+            cardId = "" + [int] $state.nextId
+            sourcePath = $sourcePath
+            targetPath = if ($sourceType -eq "exe") { $sourcePath } else { "" }
+            sourceType = $sourceType
+            automaticTitle = [System.IO.Path]::GetFileNameWithoutExtension($sourcePath)
+            folderId = $folderId
+            order = [Math]::Max(0, $order)
+        }
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId; operation = $Operation; cardId = ""; cardDataUpdateError = $cardDataUpdateError; manualCardDraft = $draft
+    })
+    exit 0
+}
+
+if ($Operation -eq "update-card-orders") {
+    $cardDataUpdateError = ""
+    $cardDataChanged = $false
+    $updatedCardData = [ordered]@{}
+
+    try {
+        $state = Read-State -Path $StatePath
+        $payload = Decode-CardData -EncodedValue $CardDataEncoded
+        $folderId = Normalize-FolderOrderKey -Value ([string] (Get-ObjectPropertyValue -Object $payload -Name "folderId"))
+        $entries = @(Get-ObjectPropertyValue -Object $payload -Name "orders")
+
+        if ($entries.Count -eq 0) { throw "Card order list is empty" }
+
+        $seenCardIds = @{}
+        $seenOrders = @{}
+        $normalizedEntries = @()
+
+        foreach ($entry in $entries) {
+            $entryCardId = Normalize-CardId -Value ([string] (Get-ObjectPropertyValue -Object $entry -Name "cardId"))
+            $entryOrder = 0
+
+            if (-not $entryCardId) { throw "Card ID is required for ordering" }
+            if (-not [int]::TryParse([string] (Get-ObjectPropertyValue -Object $entry -Name "order"), [ref] $entryOrder) -or $entryOrder -lt 0) { throw "Card order is invalid" }
+            if ($seenCardIds.ContainsKey($entryCardId)) { throw "Duplicate card ID in order update" }
+            if ($seenOrders.ContainsKey($entryOrder)) { throw "Duplicate order in order update" }
+
+            $seenCardIds[$entryCardId] = $true
+            $seenOrders[$entryOrder] = $true
+            $normalizedEntries += [PSCustomObject]@{ cardId = $entryCardId; order = $entryOrder }
+        }
+
+        for ($expectedOrder = 0; $expectedOrder -lt $normalizedEntries.Count; ++$expectedOrder) {
+            if (-not $seenOrders.ContainsKey($expectedOrder)) { throw "Card order must be sequential" }
+        }
+
+        foreach ($entry in $normalizedEntries) {
+            $nextCardData = Normalize-CardData -Data (Get-CardData -State $state -Id $entry.cardId)
+            if (-not $nextCardData) { $nextCardData = [PSCustomObject]@{} }
+
+            $folderOrders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $nextCardData -Name "folderOrders")
+            $folderOrders[$folderId] = [int] $entry.order
+
+            if (Test-ObjectHasProperty -Object $nextCardData -Name "folderOrders") {
+                $nextCardData.folderOrders = [PSCustomObject] $folderOrders
+            } else {
+                $nextCardData | Add-Member -NotePropertyName folderOrders -NotePropertyValue ([PSCustomObject] $folderOrders)
+            }
+
+            [void] (Set-CardData -State $state -Id $entry.cardId -Data $nextCardData)
+        }
+
+        Write-State -Path $StatePath -State $state
+        $cardDataChanged = $true
+        $updatedCardData = $state.cardData
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId
+        operation = $Operation
+        cardId = $CardId
+        stateChanged = $cardDataChanged
+        cardDataUpdateError = $cardDataUpdateError
+        cardData = $updatedCardData
+    })
+    exit 0
+}
+
+if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data" -or $Operation -eq "create-manual-card") {
     $cardDataUpdateError = ""
     $cardDataChanged = $false
     $updatedCardData = [ordered]@{}
     $newManagedImage = ""
+    $newManagedShortcut = ""
     $previousCustomImage = ""
 
     try {
@@ -1088,9 +1325,26 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
         $previousCardData = Get-CardData -State $state -Id $normalizedCardId
         $previousCustomImage = [string] (Get-ObjectPropertyValue -Object $previousCardData -Name "customImage")
 
-        if ($Operation -eq "update-card-data") {
+        if ($Operation -eq "update-card-data" -or $Operation -eq "create-manual-card") {
             $decodedCardData = Decode-CardData -EncodedValue $CardDataEncoded
             $customImageSource = [string] (Get-ObjectPropertyValue -Object $decodedCardData -Name "customImageSource")
+
+            if ($Operation -eq "create-manual-card") {
+                $sourcePath = Normalize-ManualSourcePath -Value ([string] (Get-ObjectPropertyValue -Object $decodedCardData -Name "sourcePath"))
+                $sourceType = Get-ManualSourceType -Path $sourcePath
+                if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) { throw "Selected file was not found" }
+                if (Find-CardIdByManualSource -State $state -SourcePath $sourcePath) { throw "This game is already added" }
+                if ([int] $normalizedCardId -ne [int] $state.nextId) { throw "Card ID is no longer available; drop the file again" }
+
+                # Keep portable shortcuts under the widget's local data.  The original
+                # sourcePath remains untouched and is retained only for duplicate checks.
+                $newManagedShortcut = Import-CardShortcut -CardId $normalizedCardId -SourceFile $sourcePath
+                if (Test-ObjectHasProperty -Object $decodedCardData -Name "launchPath") {
+                    $decodedCardData.launchPath = $newManagedShortcut
+                } else {
+                    $decodedCardData | Add-Member -NotePropertyName launchPath -NotePropertyValue $newManagedShortcut
+                }
+            }
 
             if ($customImageSource.Trim()) {
                 $newManagedImage = Import-CardImage -CardId $normalizedCardId -SourceFile $customImageSource
@@ -1103,6 +1357,10 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
             }
 
             [void] (Set-CardData -State $state -Id $normalizedCardId -Data $decodedCardData)
+
+            if ($Operation -eq "create-manual-card") {
+                Add-ManualIdentity -State $state -CardId $normalizedCardId -SourcePath $sourcePath -Title ([string] (Get-ObjectPropertyValue -Object $decodedCardData -Name "automaticTitle"))
+            }
             $cardDataChanged = $true
         } elseif ($state.cardData.Contains($normalizedCardId)) {
             $state.cardData.Remove($normalizedCardId)
@@ -1121,6 +1379,12 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
     } catch {
         if ($newManagedImage -and (Test-Path -LiteralPath $newManagedImage -PathType Leaf)) {
             Remove-Item -LiteralPath $newManagedImage -Force -ErrorAction SilentlyContinue
+        }
+
+        # Import-CardShortcut returns the source itself for .exe files, so clean up
+        # only copied .lnk/.url files on a failed transaction.
+        if ($newManagedShortcut -and $sourceType -ne "exe" -and (Test-Path -LiteralPath $newManagedShortcut -PathType Leaf)) {
+            Remove-Item -LiteralPath $newManagedShortcut -Force -ErrorAction SilentlyContinue
         }
 
         $cardDataUpdateError = $_.Exception.Message

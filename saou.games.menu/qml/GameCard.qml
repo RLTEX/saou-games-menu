@@ -8,6 +8,10 @@ Rectangle {
     property int gameNumber: 0
     property real hoverZoom: 1.015
     property bool editMode: false
+    property bool reorderEnabled: false
+    property bool reorderDragging: false
+    property bool reorderInsertBefore: false
+    property bool reorderInsertAfter: false
     property string fallbackImage: "../assets/placeholder.png"
     property string automaticImage: resolveImage(game && game.automaticImage ? game.automaticImage : (game && game.image ? game.image : ""), false)
     property string customImage: resolveImage(game && game.customImage ? game.customImage : "", true)
@@ -21,6 +25,10 @@ Rectangle {
     signal launchRequested(var game)
     signal editRequested(string requestedCardId)
     signal removeRequested(string requestedCardId)
+    signal reorderStarted(string requestedCardId)
+    signal reorderPointerMoved(string requestedCardId, real gridX, real gridY)
+    signal reorderDropped(string requestedCardId)
+    signal reorderFinished(string requestedCardId)
 
     function resolveImage(path, optional) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -72,10 +80,22 @@ Rectangle {
 
     radius: 10
     clip: true
+    opacity: reorderDragging ? 0.52 : 1
     color: "#1AFFFFFF"
     border.width: hovered || editMode ? (editMode ? 1 : 2) : 0
     border.color: editMode ? "#92DDF7FF" : (hovered ? "#DDF1FDFF" : accentColor)
-    scale: hovered ? hoverZoom : 1
+
+    Behavior on opacity {
+        NumberAnimation { duration: 100 }
+    }
+
+    Behavior on x {
+        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+    }
+
+    Behavior on y {
+        NumberAnimation { duration: 130; easing.type: Easing.OutCubic }
+    }
 
     onPreferredImageChanged: {
         reloadImageSource()
@@ -83,13 +103,6 @@ Rectangle {
 
     onImageReloadKeyChanged: {
         reloadImageSource()
-    }
-
-    Behavior on scale {
-        NumberAnimation {
-            duration: 110
-            easing.type: Easing.OutCubic
-        }
     }
 
     Image {
@@ -159,6 +172,28 @@ Rectangle {
         }
     }
 
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.top: parent.top
+        anchors.topMargin: 1
+        height: 3
+        visible: card.reorderInsertBefore
+        z: 3
+        color: "#F4DDF7FF"
+    }
+
+    Rectangle {
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 1
+        height: 3
+        visible: card.reorderInsertAfter
+        z: 3
+        color: "#F4DDF7FF"
+    }
+
     Column {
         anchors.left: parent.left
         anchors.leftMargin: 13
@@ -191,8 +226,8 @@ Rectangle {
     Text {
         id: numberText
 
-        anchors.right: editButton.visible ? editButton.left : parent.right
-        anchors.rightMargin: editButton.visible ? 8 : 12
+        anchors.right: reorderButton.visible ? reorderButton.left : (editButton.visible ? editButton.left : parent.right)
+        anchors.rightMargin: (reorderButton.visible || editButton.visible) ? 8 : 12
         anchors.bottom: parent.bottom
         anchors.bottomMargin: 13
         text: card.numberLabel()
@@ -246,6 +281,82 @@ Rectangle {
             preventStealing: true
             cursorShape: Qt.PointingHandCursor
             onClicked: card.editRequested(card.cardId)
+        }
+    }
+
+    Rectangle {
+        id: reorderButton
+
+        anchors.bottom: parent.bottom
+        anchors.right: editButton.left
+        anchors.bottomMargin: 12
+        anchors.rightMargin: 8
+        width: 28
+        height: 28
+        radius: 4
+        visible: card.editMode && card.reorderEnabled && card.enabled
+        z: 2
+        color: reorderMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+        border.width: reorderMouse.containsMouse ? 1 : 0
+        border.color: "#99FFFFFF"
+
+        Item {
+            anchors.centerIn: parent
+            width: 13
+            height: 12
+
+            Repeater {
+                model: 3
+
+                Rectangle {
+                    width: 13
+                    height: 1.5
+                    radius: 1
+                    y: index * 5
+                    color: "#FFFFFFFF"
+                }
+            }
+        }
+
+        MouseArea {
+            id: reorderMouse
+
+            property real pressX: 0
+            property real pressY: 0
+            property bool moved: false
+
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.SizeAllCursor
+            onPressed: {
+                pressX = mouseX
+                pressY = mouseY
+                moved = false
+                card.reorderStarted(card.cardId)
+            }
+            onPositionChanged: {
+                if (!pressed)
+                    return
+
+                if (!moved && Math.abs(mouseX - pressX) + Math.abs(mouseY - pressY) < 6)
+                    return
+
+                moved = true
+                var point = reorderButton.mapToItem(card.parent, mouseX, mouseY)
+                card.reorderPointerMoved(card.cardId, point.x, point.y)
+            }
+            onReleased: {
+                if (moved) {
+                    var point = reorderButton.mapToItem(card.parent, mouseX, mouseY)
+                    card.reorderPointerMoved(card.cardId, point.x, point.y)
+                    card.reorderDropped(card.cardId)
+                } else {
+                    card.reorderFinished(card.cardId)
+                }
+                moved = false
+            }
+            onCanceled: card.reorderFinished(card.cardId)
         }
     }
 
@@ -310,4 +421,5 @@ Rectangle {
             onClicked: card.removeRequested(card.cardId)
         }
     }
+
 }
