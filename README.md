@@ -4,7 +4,7 @@
 ![SAOU Games Menu Preview](assets/Preview.gif)
 
 SAO Utils Games Menu is an SAO-style launcher widget for SAO Utils 2 /
-NERvGear. Version 1.1.0 ships with an included `shortcuts/` directory: place
+NERvGear. Version 1.2.0 ships with an included `shortcuts/` directory: place
 `.lnk` or `.url` files there and they appear in the system `ALL` folder.
 
 The widget launches through the existing Windows shortcut / URI flow and closes
@@ -41,6 +41,7 @@ directories used by discovery and stable ID storage.
 - Custom folders configured by numeric ID.
 - Optional external `shortcutsDir` override for advanced setups.
 - Custom game artwork from `user-assets/<CurrentShortcutBaseName>.png`.
+- Local per-card title, description, image, folder, and order overrides.
 - Custom folder icons from `folder-icons/<folderId>.png`.
 - Windows `.lnk`, Windows `.url`, and legacy direct URI launch support.
 - Configurable subtitle inheritance through `syncSubtitle`.
@@ -186,8 +187,10 @@ That launch identity receives a stable numeric ID stored in:
 saou.games.menu/state/items.json
 ```
 
-The state file maps `launchKey -> numeric ID`. It is local user state, ignored
-by Git, and should not be edited manually.
+The state file maps `launchKey -> numeric ID` and stores optional local
+per-card overrides under `cardData`. It is local user state, ignored by Git,
+and should not be edited manually. The overrides do not rename or modify
+shortcuts.
 
 When a new launch identity is found, Games Menu assigns the next numeric ID and
 adds one global metadata line:
@@ -283,6 +286,10 @@ target, shortcut path, or image path. Title is stored once in the global
 `item=<ID>|<Title>|<GlobalSubtitle>` line and is inherited by every folder that
 uses `game=<ID>`.
 
+For discovered shortcuts, the global title stays synchronized with the current
+shortcut basename. A user display-name override is stored separately in local
+`state/items.json` card data, so it never renames the shortcut.
+
 Subtitle sync is controlled by:
 
 ```text
@@ -344,7 +351,7 @@ is present, the sidebar uses a minimal QML fallback icon.
 ## v2 Migration
 
 The basename-based `configVersion=2` model was experimental during v1.1.0
-development. Current v1.1.0 config uses `configVersion=3`.
+development. Current v1.2.0 config uses `configVersion=3`.
 
 On discovery or Reload, Games Menu attempts a controlled v2-to-v3 migration only
 when the current discovered shortcut basename maps unambiguously to one stable
@@ -376,7 +383,7 @@ game=Title|Shortcut|Image|Description|Accent|Id
 ```
 
 Legacy entries are shown after discovered shortcuts. They are not the primary
-v1.1.0 configuration style; use the included `shortcuts/` directory plus
+v1.2.0 configuration style; use the included `shortcuts/` directory plus
 `folder=` entries for new setups.
 
 Press Reload after changing `config.txt`; this reloads folders, `item=`

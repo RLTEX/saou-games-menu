@@ -7,7 +7,10 @@ Rectangle {
     property int gameNumber: 0
     property real hoverZoom: 1.015
     property string fallbackImage: "../assets/placeholder.png"
-    property string preferredImage: resolveImage(game && game.image ? game.image : "", false)
+    property string automaticImage: resolveImage(game && game.automaticImage ? game.automaticImage : (game && game.image ? game.image : ""), false)
+    property string customImage: resolveImage(game && game.customImage ? game.customImage : "", true)
+    property string preferredImage: customImage || automaticImage
+    property string secondaryImage: customImage && automaticImage !== customImage ? automaticImage : fallbackImage
     property string currentImage: preferredImage
     property string imageReloadKey: game && game.imageReloadKey ? game.imageReloadKey : ""
     property color accentColor: game && game.accent ? game.accent : "#DDF7FF"
@@ -53,6 +56,16 @@ Rectangle {
         })
     }
 
+    function nextImageFallback() {
+        if (currentImage === preferredImage && secondaryImage && currentImage !== secondaryImage)
+            return secondaryImage
+
+        if (currentImage !== fallbackImage)
+            return fallbackImage
+
+        return ""
+    }
+
     radius: 10
     clip: true
     color: "#1AFFFFFF"
@@ -87,8 +100,12 @@ Rectangle {
         smooth: true
 
         onStatusChanged: {
-            if (status === Image.Error && card.currentImage !== card.fallbackImage)
-                card.currentImage = card.fallbackImage
+            if (status === Image.Error) {
+                var fallback = card.nextImageFallback()
+
+                if (fallback)
+                    card.currentImage = fallback
+            }
         }
 
         Behavior on width {

@@ -88,7 +88,7 @@ T.Widget {
     }
 
     function requestManualReload() {
-        if (reloadPending || shortcutDiscovery.refreshing)
+        if (reloadPending || shortcutDiscovery.refreshing || shortcutDiscovery.cardDataUpdating)
             return
 
         reloadPending = true
@@ -171,15 +171,163 @@ T.Widget {
             reloadConfig()
     }
 
+    function cardIdForGame(game) {
+        var explicitCardId = ConfigLoader.normalizeString(game && game.cardId, "")
+
+        if (explicitCardId)
+            return explicitCardId
+
+        return ConfigLoader.normalizeString(game && game.id, "")
+    }
+
+    function getCardUserData(cardId) {
+        return shortcutDiscovery.getCardUserData(cardId)
+    }
+
+    function updateCardUserData(cardId, changes) {
+        var current = getCardUserData(cardId)
+        var next = {
+            customTitle: current.customTitle,
+            description: current.description,
+            customImage: current.customImage,
+            folderId: current.folderId,
+            order: current.hasOrder ? current.order : null
+        }
+
+        if (changes && typeof changes === "object") {
+            for (var key in changes) {
+                if (changes.hasOwnProperty(key))
+                    next[key] = changes[key]
+            }
+        }
+
+        var requestedFolderId = ConfigLoader.normalizeString(next.folderId, "")
+
+        if (requestedFolderId) {
+            requestedFolderId = ConfigLoader.normalizeFolderId(requestedFolderId)
+
+            if (!requestedFolderId || requestedFolderId === "all" || !findConfiguredFolder(requestedFolderId)) {
+                console.log("Games Menu card data update skipped: unknown folder " + next.folderId)
+                return false
+            }
+
+            next.folderId = requestedFolderId
+        }
+
+        return shortcutDiscovery.updateCardUserData(cardId, next)
+    }
+
+    function removeCardUserOverride(cardId) {
+        return shortcutDiscovery.removeCardUserOverride(cardId)
+    }
+
+    function getEffectiveCardTitle(game) {
+        var userData = getCardUserData(cardIdForGame(game))
+        var automaticTitle = ConfigLoader.normalizeString(game && game.automaticTitle, ConfigLoader.normalizeString(game && game.title, "GAME"))
+
+        return userData.customTitle || automaticTitle
+    }
+
+    function getEffectiveCardImage(game) {
+        var userData = getCardUserData(cardIdForGame(game))
+        var automaticImage = ConfigLoader.normalizeString(game && game.automaticImage, ConfigLoader.normalizeString(game && game.image, "assets/placeholder.png"))
+
+        return userData.customImage || automaticImage
+    }
+
+    function withCardUserData(game) {
+        if (!game)
+            return game
+
+        var result = {}
+
+        for (var key in game) {
+            if (game.hasOwnProperty(key))
+                result[key] = game[key]
+        }
+
+        var cardId = cardIdForGame(game)
+        var userData = getCardUserData(cardId)
+
+        result.cardId = cardId
+        result.automaticTitle = ConfigLoader.normalizeString(game.title, "GAME")
+        result.automaticImage = ConfigLoader.normalizeString(game.image, "assets/placeholder.png")
+        result.customImage = userData.customImage
+        result.customFolderId = userData.folderId
+        result.customOrder = userData.order
+        result.hasCustomOrder = userData.hasOrder
+        result.title = getEffectiveCardTitle(result)
+        result.image = getEffectiveCardImage(result)
+
+        if (userData.description)
+            result.subtitle = userData.description
+
+        return result
+    }
+
+    function customFolderForGame(game) {
+        var folderId = ConfigLoader.normalizeString(game && game.customFolderId, "")
+
+        return folderId && findConfiguredFolder(folderId) ? folderId : ""
+    }
+
+    function sortGamesByCustomOrder(games) {
+        var indexed = []
+
+        for (var i = 0; games && i < games.length; ++i) {
+            indexed.push({
+                game: games[i],
+                index: i
+            })
+        }
+
+        indexed.sort(function(left, right) {
+            var leftHasOrder = left.game && left.game.hasCustomOrder === true
+            var rightHasOrder = right.game && right.game.hasCustomOrder === true
+
+            if (leftHasOrder && rightHasOrder && left.game.customOrder !== right.game.customOrder)
+                return left.game.customOrder - right.game.customOrder
+
+            if (leftHasOrder !== rightHasOrder)
+                return leftHasOrder ? -1 : 1
+
+            return left.index - right.index
+        })
+
+        var result = []
+
+        for (var index = 0; index < indexed.length; ++index)
+            result.push(indexed[index].game)
+
+        return result
+    }
+
+    function withCustomDescription(game) {
+        var userData = getCardUserData(cardIdForGame(game))
+
+        if (!userData.description)
+            return game
+
+        var result = {}
+
+        for (var key in game) {
+            if (game.hasOwnProperty(key))
+                result[key] = game[key]
+        }
+
+        result.subtitle = userData.description
+        return result
+    }
+
     function buildAllGames() {
         var result = []
         var i
 
         for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i)
-            result.push(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle))
+            result.push(withCardUserData(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle)))
 
         for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i)
-            result.push(widget.legacyGames[i])
+            result.push(withCardUserData(widget.legacyGames[i]))
 
         return result
     }
@@ -249,13 +397,26 @@ T.Widget {
             var key = ConfigLoader.normalizeNumericId(folderGame && folderGame.id ? folderGame.id : folderGame)
             var game = lookup[key]
 
-            if (game && !seen[game.id]) {
-                seen[game.id] = true
-                result.push(ConfigLoader.withResolvedSubtitle(game, folderGame, widget.subtitleModel, widget.syncSubtitle))
+            var cardId = cardIdForGame(game)
+
+            if (game && !customFolderForGame(game) && !seen[cardId]) {
+                seen[cardId] = true
+                result.push(withCustomDescription(ConfigLoader.withResolvedSubtitle(game, folderGame, widget.subtitleModel, widget.syncSubtitle)))
             }
         }
 
-        return result
+        for (var gameIndex = 0; widget.allGames && gameIndex < widget.allGames.length; ++gameIndex) {
+            var customFolderGame = widget.allGames[gameIndex]
+
+            var customCardId = cardIdForGame(customFolderGame)
+
+            if (customFolderForGame(customFolderGame) === widget.selectedFolderId && !seen[customCardId]) {
+                seen[customCardId] = true
+                result.push(customFolderGame)
+            }
+        }
+
+        return sortGamesByCustomOrder(result)
     }
 
     function resetPanel() {

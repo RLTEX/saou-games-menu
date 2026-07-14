@@ -660,15 +660,17 @@ function normalizeGames(games, usedIds) {
 
         var id = uniqueId(slugify(rawId, result.length + 1), usedIds)
         var image = normalizeString(game.image, "assets/placeholder.png")
+        var shortcut = normalizeString(game.shortcut, "")
 
         if (!hasKnownPathPrefix(image))
             image = userAssetImagePath(image)
 
         result.push({
             id: id,
+            cardId: legacyCardId(shortcut),
             title: title,
             subtitle: normalizeDescription(game),
-            shortcut: normalizeString(game.shortcut, ""),
+            shortcut: shortcut,
             image: image,
             accent: normalizeAccent(game.accent),
             baseName: title,
@@ -678,6 +680,12 @@ function normalizeGames(games, usedIds) {
     }
 
     return result
+}
+
+function legacyCardId(shortcut) {
+    var launchKey = normalizeString(shortcut, "").replace(/\\/g, "/").toLowerCase()
+
+    return "legacy:" + encodeURIComponent(launchKey)
 }
 
 function normalizeString(value, fallback) {

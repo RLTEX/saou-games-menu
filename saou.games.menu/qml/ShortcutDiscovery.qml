@@ -7,24 +7,31 @@ Item {
 
     property string shortcutsDir: ""
     property var items: []
+    property var cardData: ({})
     property url defaultFolderUrl: Qt.resolvedUrl("../shortcuts")
     property url helperScriptUrl: Qt.resolvedUrl("../tools/discover-shortcuts.ps1")
     property url updateScriptUrl: Qt.resolvedUrl("../tools/update-config-items.ps1")
     property url hiddenLauncherUrl: Qt.resolvedUrl("../tools/run-hidden.vbs")
     property url outputFileUrl: Qt.resolvedUrl("../runtime/discovery.json")
     property url updateOutputFileUrl: Qt.resolvedUrl("../runtime/config-update.json")
+    property url cardDataOutputFileUrl: Qt.resolvedUrl("../runtime/card-data-update.json")
     property url configFileUrl: Qt.resolvedUrl("../config.txt")
     property url stateFileUrl: Qt.resolvedUrl("../state/items.json")
     property string effectiveShortcutPath: effectiveShortcutDirectoryPath()
     property bool refreshing: false
+    property bool cardDataUpdating: false
     property int refreshSerial: 0
     property int activeRequestId: 0
     property int readAttempts: 0
+    property int cardDataReadAttempts: 0
     property int maxReadAttempts: 12
+    property int cardDataUpdateSerial: 0
+    property int activeCardDataRequestId: 0
     property var lastDiscoveryResult: null
     property string refreshPhase: ""
 
     signal refreshSucceeded(var result)
+    signal cardDataUpdated(string cardId, var data)
 
     function fileUrlToPath(url) {
         var value = String(url || "")
@@ -70,6 +77,82 @@ Item {
             result.push(quoteArgument(values[i]))
 
         return result.join(" ")
+    }
+
+    function hasOwn(object, name) {
+        return object && Object.prototype.hasOwnProperty.call(object, name)
+    }
+
+    function normalizeCardId(cardId) {
+        return ConfigLoader.normalizeString(cardId, "")
+    }
+
+    function normalizeCardData(source) {
+        var result = {
+            customTitle: "",
+            description: "",
+            customImage: "",
+            folderId: "",
+            order: 0,
+            hasOrder: false
+        }
+
+        if (!source || typeof source !== "object")
+            return result
+
+        result.customTitle = ConfigLoader.normalizeString(source.customTitle, "")
+        result.description = ConfigLoader.normalizeString(source.description, "")
+        result.customImage = ConfigLoader.normalizeString(source.customImage, "")
+        result.folderId = ConfigLoader.normalizeString(source.folderId, "")
+
+        if (hasOwn(source, "order")) {
+            var order = parseInt(source.order, 10)
+
+            if (!isNaN(order) && order >= 0) {
+                result.order = order
+                result.hasOrder = true
+            }
+        }
+
+        return result
+    }
+
+    function normalizedCardDataForStore(source) {
+        var normalized = normalizeCardData(source)
+        var result = {}
+
+        if (normalized.customTitle)
+            result.customTitle = normalized.customTitle
+
+        if (normalized.description)
+            result.description = normalized.description
+
+        if (normalized.customImage)
+            result.customImage = normalized.customImage
+
+        if (normalized.folderId)
+            result.folderId = normalized.folderId
+
+        if (normalized.hasOrder)
+            result.order = normalized.order
+
+        return result
+    }
+
+    function getCardUserData(cardId) {
+        var key = normalizeCardId(cardId)
+        var result = normalizeCardData(key && cardData ? cardData[key] : null)
+
+        result.cardId = key
+        return result
+    }
+
+    function applyCardData(source) {
+        cardData = source && typeof source === "object" ? source : ({})
+
+        // Reassign so dependent QML bindings refresh after an editor save.
+        if (items && typeof items.length === "number")
+            items = items.slice(0)
     }
 
     function encodedDiscoveryItems(items) {
@@ -289,6 +372,18 @@ Item {
         return data
     }
 
+    function readCardDataUpdateFile() {
+        var data = readJsonFile(cardDataOutputFileUrl)
+
+        if (!data)
+            return null
+
+        if (data.requestId !== activeCardDataRequestId)
+            return null
+
+        return data
+    }
+
     function finishRefresh(result) {
         readResultDelay.stop()
         configUpdateDelay.stop()
@@ -297,6 +392,14 @@ Item {
 
         if (result)
             refreshSucceeded(result)
+    }
+
+    function finishCardDataUpdate(cardId, data) {
+        cardDataUpdateDelay.stop()
+        cardDataUpdating = false
+
+        if (data)
+            cardDataUpdated(cardId, getCardUserData(cardId))
     }
 
     function tryReadDiscoveryOutput() {
@@ -326,6 +429,8 @@ Item {
             if (data.configUpdateError)
                 console.log("Games Menu config item update failed: " + data.configUpdateError)
 
+            if (data.cardData !== undefined && data.cardData !== null)
+                applyCardData(data.cardData)
             items = normalizeDiscoveredItems(lastDiscoveryResult && lastDiscoveryResult.items, data.items)
             finishRefresh(data)
             return
@@ -346,17 +451,6 @@ Item {
 
     function startConfigUpdate(discoveryResult) {
         var encodedItems = encodedDiscoveryItems(discoveryResult && discoveryResult.items)
-
-        if (!encodedItems) {
-            items = []
-            finishRefresh({
-                requestId: activeRequestId,
-                configChanged: false,
-                configAddedItems: [],
-                configUpdateError: ""
-            })
-            return
-        }
 
         refreshPhase = "config"
         readAttempts = 0
@@ -404,9 +498,96 @@ Item {
         configUpdateDelay.restart()
     }
 
+    function startCardDataUpdate(operation, cardId, data) {
+        if (refreshing || cardDataUpdating) {
+            console.log("Games Menu card data update is already blocked by another operation")
+            return false
+        }
+
+        var key = normalizeCardId(cardId)
+
+        if (!key) {
+            console.log("Games Menu card data update skipped: missing card ID")
+            return false
+        }
+
+        cardDataUpdating = true
+        cardDataUpdateSerial += 1
+        activeCardDataRequestId = cardDataUpdateSerial
+        cardDataReadAttempts = 0
+
+        var hiddenLauncher = "C:\\Windows\\System32\\wscript.exe"
+        var powerShell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        var args = quotedArguments([
+            fileUrlToPath(hiddenLauncherUrl),
+            powerShell,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            fileUrlToPath(updateScriptUrl),
+            "-StatePath",
+            fileUrlToPath(stateFileUrl),
+            "-UpdateOutputPath",
+            fileUrlToPath(cardDataOutputFileUrl),
+            "-UpdateRequestId",
+            "" + activeCardDataRequestId,
+            "-Operation",
+            operation,
+            "-CardId",
+            key,
+            "-CardDataEncoded",
+            operation === "update-card-data" ? encodeURIComponent(JSON.stringify(normalizedCardDataForStore(data))) : ""
+        ])
+
+        try {
+            NVG.SystemCall.execute(hiddenLauncher, args)
+        } catch (error) {
+            console.log("Games Menu card data update launch failed: " + error)
+            finishCardDataUpdate(key, null)
+            return false
+        }
+
+        cardDataUpdateDelay.restart()
+        return true
+    }
+
+    function updateCardUserData(cardId, data) {
+        return startCardDataUpdate("update-card-data", cardId, data)
+    }
+
+    function removeCardUserOverride(cardId) {
+        return startCardDataUpdate("remove-card-data", cardId, null)
+    }
+
+    function tryReadCardDataUpdate() {
+        var data = readCardDataUpdateFile()
+
+        if (data) {
+            if (data.cardDataUpdateError)
+                console.log("Games Menu card data update failed: " + data.cardDataUpdateError)
+            else
+                applyCardData(data.cardData)
+
+            finishCardDataUpdate(normalizeCardId(data.cardId), data.cardDataUpdateError ? null : data)
+            return
+        }
+
+        cardDataReadAttempts += 1
+
+        if (cardDataReadAttempts >= maxReadAttempts) {
+            console.log("Games Menu card data update result was not ready")
+            finishCardDataUpdate("", null)
+        }
+    }
+
     function refresh() {
-        if (refreshing) {
-            console.log("Games Menu discovery refresh is already running")
+        if (refreshing || cardDataUpdating) {
+            console.log("Games Menu discovery refresh is already blocked by another operation")
             return false
         }
 
@@ -479,5 +660,13 @@ Item {
         interval: 250
         repeat: true
         onTriggered: discovery.tryReadConfigUpdate()
+    }
+
+    Timer {
+        id: cardDataUpdateDelay
+
+        interval: 250
+        repeat: true
+        onTriggered: discovery.tryReadCardDataUpdate()
     }
 }
