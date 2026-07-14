@@ -27,11 +27,13 @@ Item {
     property int maxReadAttempts: 12
     property int cardDataUpdateSerial: 0
     property int activeCardDataRequestId: 0
+    property string activeCardDataCardId: ""
     property var lastDiscoveryResult: null
     property string refreshPhase: ""
 
     signal refreshSucceeded(var result)
     signal cardDataUpdated(string cardId, var data)
+    signal cardDataUpdateFinished(string cardId, bool success, string error)
 
     function fileUrlToPath(url) {
         var value = String(url || "")
@@ -394,12 +396,15 @@ Item {
             refreshSucceeded(result)
     }
 
-    function finishCardDataUpdate(cardId, data) {
+    function finishCardDataUpdate(cardId, data, error) {
         cardDataUpdateDelay.stop()
         cardDataUpdating = false
 
         if (data)
             cardDataUpdated(cardId, getCardUserData(cardId))
+
+        cardDataUpdateFinished(cardId, !!data, error || "")
+        activeCardDataCardId = ""
     }
 
     function tryReadDiscoveryOutput() {
@@ -514,6 +519,7 @@ Item {
         cardDataUpdating = true
         cardDataUpdateSerial += 1
         activeCardDataRequestId = cardDataUpdateSerial
+        activeCardDataCardId = key
         cardDataReadAttempts = 0
 
         var hiddenLauncher = "C:\\Windows\\System32\\wscript.exe"
@@ -548,7 +554,7 @@ Item {
             NVG.SystemCall.execute(hiddenLauncher, args)
         } catch (error) {
             console.log("Games Menu card data update launch failed: " + error)
-            finishCardDataUpdate(key, null)
+            finishCardDataUpdate(key, null, "" + error)
             return false
         }
 
@@ -573,7 +579,7 @@ Item {
             else
                 applyCardData(data.cardData)
 
-            finishCardDataUpdate(normalizeCardId(data.cardId), data.cardDataUpdateError ? null : data)
+            finishCardDataUpdate(normalizeCardId(data.cardId), data.cardDataUpdateError ? null : data, data.cardDataUpdateError || "")
             return
         }
 
@@ -581,7 +587,7 @@ Item {
 
         if (cardDataReadAttempts >= maxReadAttempts) {
             console.log("Games Menu card data update result was not ready")
-            finishCardDataUpdate("", null)
+            finishCardDataUpdate(activeCardDataCardId, null, "Card data update timeout")
         }
     }
 

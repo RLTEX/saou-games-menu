@@ -8,10 +8,12 @@ Item {
     property real hoverZoom: 1.015
     property string fallbackIcon: "folder-icons/default.png"
     property bool refreshRunning: false
+    property bool editMode: false
 
     signal folderSelected(string folderId)
     signal openShortcutsRequested()
     signal reloadRequested()
+    signal editModeRequested()
 
     function resolveImage(path) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -273,6 +275,37 @@ Item {
                     if (!sidebar.refreshRunning)
                         sidebar.reloadRequested()
                 }
+            }
+        }
+
+        Rectangle {
+            id: editModeButton
+
+            property bool visualHover: editModeMouse.containsMouse
+            property bool visualPressed: editModeMouse.pressed
+
+            width: 28
+            height: 28
+            radius: 6
+            color: sidebar.editMode ? "#24DDF6FF" : (visualPressed ? "#22FFFFFF" : (visualHover ? "#18FFFFFF" : "#08FFFFFF"))
+            border.width: sidebar.editMode || visualHover || visualPressed ? 1 : 0
+            border.color: sidebar.editMode ? "#B8F2FDFF" : "#66DDF6FF"
+
+            Text {
+                anchors.centerIn: parent
+                text: "\u270e"
+                color: sidebar.editMode ? "#FFFFFFFF" : "#B8F2FDFF"
+                font.pixelSize: 17
+                font.bold: true
+            }
+
+            MouseArea {
+                id: editModeMouse
+
+                anchors.fill: parent
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sidebar.editModeRequested()
             }
         }
     }
