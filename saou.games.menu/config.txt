@@ -36,12 +36,5 @@ folderIconScale=1
 # game=<ID>|<FolderSubtitle>
 
 # Game metadata:
-item=1|Game|Game Subtitle
-item=2|SnowRunner|OFF-ROAD SIMULATOR
 
-folder=favorites|FAVORITES|4
-    game=1
-    game=2
-
-folder=racing|RACING|2
-    game=2|RACING GAME
+folder=favorites|FAVORITES|3
