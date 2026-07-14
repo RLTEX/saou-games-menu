@@ -192,6 +192,12 @@ per-card overrides under `cardData`. It is local user state, ignored by Git,
 and should not be edited manually. The overrides do not rename or modify
 shortcuts.
 
+Images imported through the card editor are copied only after **Save** to
+`%LOCALAPPDATA%\SAO Utils\Games Menu\custom-images`. The state stores that
+managed copy, never the original source file. Resetting an image or removing a
+card can delete only a matching widget-managed copy; shortcuts and external
+source images are never removed.
+
 When a new launch identity is found, Games Menu assigns the next numeric ID and
 adds one global metadata line:
 

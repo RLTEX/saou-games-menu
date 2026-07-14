@@ -55,9 +55,19 @@ T.Widget {
     property string cardEditorSaveError: ""
     property string editorAutomaticTitle: ""
     property string editorAutomaticImage: ""
+    property string editorExistingCustomImage: ""
     property string editorImageDraft: ""
+    property string editorImagePendingSource: ""
+    property bool editorImageResetRequested: false
+    property bool editorImageDropActive: false
     property string editorPreviewSource: ""
     property string editorPreviewFallback: ""
+    property string cardDataAction: ""
+    property bool cardRemovalConfirmOpen: false
+    property bool cardRemovalSaving: false
+    property string cardRemovalCardId: ""
+    property string cardRemovalTitle: ""
+    property string cardRemovalError: ""
 
     property int gameCount: activeGames && activeGames.length ? activeGames.length : 0
     property int gridColumns: calculateGridColumns()
@@ -171,7 +181,7 @@ T.Widget {
     }
 
     function toggleEditMode() {
-        if (closing || launching)
+        if (closing || launching || cardEditorOpen || cardRemovalConfirmOpen)
             return
 
         editMode = !editMode
@@ -193,7 +203,11 @@ T.Widget {
         editorCardId = normalizedCardId
         editorAutomaticTitle = ConfigLoader.normalizeString(game.automaticTitle, ConfigLoader.normalizeString(game.title, "GAME"))
         editorAutomaticImage = ConfigLoader.normalizeString(game.automaticImage, ConfigLoader.normalizeString(game.image, "assets/placeholder.png"))
+        editorExistingCustomImage = userData.customImage
         editorImageDraft = userData.customImage
+        editorImagePendingSource = ""
+        editorImageResetRequested = false
+        editorImageDropActive = false
         editorImagePathField.text = userData.customImage
         editorTitleField.text = userData.customTitle
         editorDescriptionField.text = userData.description
@@ -270,7 +284,9 @@ T.Widget {
             return false
         }
 
+        editorImagePendingSource = value
         editorImageDraft = value
+        editorImageResetRequested = false
         editorImagePathField.text = value
         cardEditorSaveError = ""
         refreshEditorPreview()
@@ -289,6 +305,9 @@ T.Widget {
             return
 
         editorImageDraft = ""
+        editorImagePendingSource = ""
+        editorImageResetRequested = true
+        editorImageDropActive = false
         editorImagePathField.text = ""
         cardEditorSaveError = ""
         refreshEditorPreview()
@@ -299,30 +318,33 @@ T.Widget {
             return
 
         var description = trimEditorText(editorDescriptionField.text)
-        var customImage = trimEditorText(editorImagePathField.text)
+        var imagePath = trimEditorText(editorImagePathField.text)
 
         if (description.length > 600)
             description = description.slice(0, 600)
 
-        if (customImage && !isSupportedImagePath(customImage)) {
-            cardEditorSaveError = "SELECT PNG, JPG, JPEG OR WEBP"
+        if (!editorImageResetRequested && imagePath && imagePath !== editorExistingCustomImage && imagePath !== editorImagePendingSource
+                && !chooseEditorImage(imagePath))
             return
-        }
 
-        editorImageDraft = customImage
+        editorImageDropActive = false
         refreshEditorPreview()
         cardEditorSaveError = ""
+
+        cardEditorSaving = true
+        cardDataAction = "editor"
 
         if (!updateCardUserData(editorCardId, {
             customTitle: trimEditorText(editorTitleField.text),
             description: description,
-            customImage: customImage
+            customImage: editorImageResetRequested ? "" : editorExistingCustomImage,
+            customImageSource: editorImageResetRequested ? "" : editorImagePendingSource
         })) {
+            cardEditorSaving = false
+            cardDataAction = ""
             cardEditorSaveError = "SAVE IS TEMPORARILY UNAVAILABLE"
             return
         }
-
-        cardEditorSaving = true
     }
 
     function cancelCardEditor() {
@@ -332,20 +354,84 @@ T.Widget {
         cardEditorOpen = false
         cardEditorSaveError = ""
         editorCardId = ""
+        editorImagePendingSource = ""
+        editorImageDropActive = false
     }
 
     function handleCardDataUpdateFinished(cardId, success, error) {
-        if (!cardEditorSaving || String(cardId) !== editorCardId)
+        if (cardDataAction === "editor" && cardEditorSaving && String(cardId) === editorCardId) {
+            cardEditorSaving = false
+            cardDataAction = ""
+
+            if (success) {
+                cardEditorOpen = false
+                cardEditorSaveError = ""
+                editorCardId = ""
+                editorImagePendingSource = ""
+                editorImageDropActive = false
+            } else {
+                cardEditorSaveError = error || "SAVE FAILED"
+            }
+            return
+        }
+
+        if (cardDataAction === "remove" && cardRemovalSaving && String(cardId) === cardRemovalCardId) {
+            cardRemovalSaving = false
+            cardDataAction = ""
+
+            if (success) {
+                cardRemovalConfirmOpen = false
+                cardRemovalCardId = ""
+                cardRemovalTitle = ""
+                cardRemovalError = ""
+            } else {
+                cardRemovalError = error || "REMOVE FAILED"
+            }
+        }
+    }
+
+    function requestCardRemoval(cardId) {
+        var normalizedCardId = ConfigLoader.normalizeString(cardId, "")
+
+        if (!editMode || cardEditorOpen || cardRemovalConfirmOpen || cardRemovalSaving || !normalizedCardId)
             return
 
-        cardEditorSaving = false
+        var game = findGameByCardId(normalizedCardId)
 
-        if (success) {
-            cardEditorOpen = false
-            cardEditorSaveError = ""
-            editorCardId = ""
-        } else {
-            cardEditorSaveError = error || "SAVE FAILED"
+        if (!game)
+            return
+
+        cardRemovalCardId = normalizedCardId
+        cardRemovalTitle = getEffectiveCardTitle(game)
+        cardRemovalError = ""
+        cardRemovalConfirmOpen = true
+    }
+
+    function cancelCardRemoval() {
+        if (cardRemovalSaving)
+            return
+
+        cardRemovalConfirmOpen = false
+        cardRemovalCardId = ""
+        cardRemovalTitle = ""
+        cardRemovalError = ""
+    }
+
+    function confirmCardRemoval() {
+        if (!cardRemovalConfirmOpen || cardRemovalSaving || !cardRemovalCardId)
+            return
+
+        cardRemovalSaving = true
+        cardDataAction = "remove"
+        cardRemovalError = ""
+
+        if (!updateCardUserData(cardRemovalCardId, {
+            isHidden: true,
+            customImage: ""
+        })) {
+            cardRemovalSaving = false
+            cardDataAction = ""
+            cardRemovalError = "REMOVE IS TEMPORARILY UNAVAILABLE"
         }
     }
 
@@ -380,7 +466,8 @@ T.Widget {
             description: current.description,
             customImage: current.customImage,
             folderId: current.folderId,
-            order: current.hasOrder ? current.order : null
+            order: current.hasOrder ? current.order : null,
+            isHidden: current.isHidden
         }
 
         if (changes && typeof changes === "object") {
@@ -445,6 +532,7 @@ T.Widget {
         result.customFolderId = userData.folderId
         result.customOrder = userData.order
         result.hasCustomOrder = userData.hasOrder
+        result.isHidden = userData.isHidden
         result.title = getEffectiveCardTitle(result)
         result.image = getEffectiveCardImage(result)
 
@@ -512,11 +600,19 @@ T.Widget {
         var result = []
         var i
 
-        for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i)
-            result.push(withCardUserData(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle)))
+        for (i = 0; widget.discoveredGames && i < widget.discoveredGames.length; ++i) {
+            var discoveredGame = withCardUserData(ConfigLoader.withResolvedSubtitle(widget.discoveredGames[i], null, widget.subtitleModel, widget.syncSubtitle))
 
-        for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i)
-            result.push(withCardUserData(widget.legacyGames[i]))
+            if (!discoveredGame.isHidden)
+                result.push(discoveredGame)
+        }
+
+        for (i = 0; widget.legacyGames && i < widget.legacyGames.length; ++i) {
+            var legacyGame = withCardUserData(widget.legacyGames[i])
+
+            if (!legacyGame.isHidden)
+                result.push(legacyGame)
+        }
 
         return result
     }
@@ -622,6 +718,14 @@ T.Widget {
         cardEditorOpen = false
         cardEditorSaving = false
         cardEditorSaveError = ""
+        editorImagePendingSource = ""
+        editorImageDropActive = false
+        cardDataAction = ""
+        cardRemovalConfirmOpen = false
+        cardRemovalSaving = false
+        cardRemovalCardId = ""
+        cardRemovalTitle = ""
+        cardRemovalError = ""
 
         panel.visible = true
         panel.opacity = 1
@@ -668,6 +772,14 @@ T.Widget {
         cardEditorOpen = false
         cardEditorSaving = false
         cardEditorSaveError = ""
+        editorImagePendingSource = ""
+        editorImageDropActive = false
+        cardDataAction = ""
+        cardRemovalConfirmOpen = false
+        cardRemovalSaving = false
+        cardRemovalCardId = ""
+        cardRemovalTitle = ""
+        cardRemovalError = ""
         launching = false
         launchFailed = false
         launchingTitle = ""
@@ -737,7 +849,7 @@ T.Widget {
     }
 
     function launchShortcut(game) {
-        if (editMode || cardEditorOpen || closing || launching)
+        if (editMode || cardEditorOpen || cardRemovalConfirmOpen || closing || launching)
             return
 
         var displayName = game && game.title ? game.title : "GAME"
@@ -800,6 +912,10 @@ T.Widget {
         editorCardId = ""
         cardEditorOpen = false
         cardEditorSaving = false
+        cardRemovalConfirmOpen = false
+        cardRemovalSaving = false
+        cardRemovalCardId = ""
+        cardDataAction = ""
         resetPanel()
         Qt.callLater(widget.requestInitialRefresh)
 
@@ -1083,6 +1199,7 @@ T.Widget {
                                     widget.launchShortcut(game)
                             }
                             onEditRequested: widget.openCardEditor(requestedCardId)
+                            onRemoveRequested: widget.requestCardRemoval(requestedCardId)
                         }
                     }
                 }
@@ -1227,6 +1344,8 @@ T.Widget {
                 }
 
                 Rectangle {
+                    id: editorImageDropTarget
+
                     x: 18
                     y: 65
                     width: 128
@@ -1235,7 +1354,7 @@ T.Widget {
                     clip: true
                     color: "#1CFFFFFF"
                     border.width: 1
-                    border.color: "#36FFFFFF"
+                    border.color: widget.editorImageDropActive ? "#DDF7FFFF" : "#36FFFFFF"
 
                     Image {
                         anchors.fill: parent
@@ -1249,14 +1368,56 @@ T.Widget {
                                 widget.advanceEditorPreviewFallback()
                         }
                     }
+
+                    DropArea {
+                        anchors.fill: parent
+                        enabled: widget.cardEditorOpen && !widget.cardEditorSaving
+
+                        onEntered: {
+                            if (drag.hasUrls) {
+                                widget.editorImageDropActive = true
+                                drag.accepted = true
+                            }
+                        }
+
+                        onExited: widget.editorImageDropActive = false
+
+                        onDropped: {
+                            widget.editorImageDropActive = false
+                            drop.accepted = true
+
+                            if (!drop.hasUrls || drop.urls.length !== 1) {
+                                widget.cardEditorSaveError = "DROP ONE PNG, JPG, JPEG OR WEBP IMAGE"
+                                return
+                            }
+
+                            widget.chooseEditorImage(String(drop.urls[0]))
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            visible: widget.editorImageDropActive
+                            color: "#7A102534"
+                        }
+
+                        Text {
+                            anchors.centerIn: parent
+                            visible: widget.editorImageDropActive
+                            text: "DROP IMAGE"
+                            color: "#FFFFFFFF"
+                            font.pixelSize: 9
+                            font.bold: true
+                            font.letterSpacing: 1.0
+                        }
+                    }
                 }
 
                 Text {
                     x: 18
                     y: 176
                     width: 128
-                    text: widget.trimEditorText(editorImagePathField.text) ? "CUSTOM IMAGE" : "AUTOMATIC IMAGE"
-                    color: widget.trimEditorText(editorImagePathField.text) ? "#DDF7FFFF" : "#8ED7E6F0"
+                    text: widget.editorImageDraft ? "CUSTOM IMAGE" : "AUTOMATIC IMAGE"
+                    color: widget.editorImageDraft ? "#DDF7FFFF" : "#8ED7E6F0"
                     font.pixelSize: 7
                     font.letterSpacing: 0.8
                     horizontalAlignment: Text.AlignHCenter
@@ -1525,6 +1686,196 @@ T.Widget {
                         cursorShape: Qt.PointingHandCursor
                         enabled: !widget.cardEditorSaving
                         onClicked: widget.cancelCardEditor()
+                    }
+                }
+            }
+        }
+
+        Item {
+            id: cardRemovalOverlay
+
+            anchors.fill: parent
+            visible: widget.cardRemovalConfirmOpen
+            focus: visible
+            z: 11
+
+            onVisibleChanged: {
+                if (visible)
+                    forceActiveFocus()
+            }
+
+            Keys.onEscapePressed: {
+                widget.cancelCardRemoval()
+                event.accepted = true
+            }
+
+            Rectangle {
+                anchors.fill: parent
+                color: "#B7141A24"
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: cardRemovalOverlay.visible && !widget.cardRemovalSaving
+                onClicked: widget.cancelCardRemoval()
+            }
+
+            Rectangle {
+                id: cardRemovalPanel
+
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 56, 450)
+                height: 214
+                radius: 10
+                color: "#F01A222E"
+                border.width: 1
+                border.color: "#A5FF9C9C"
+
+                MouseArea {
+                    anchors.fill: parent
+                    onClicked: {
+                    }
+                }
+
+                Text {
+                    x: 18
+                    y: 18
+                    text: "REMOVE CARD"
+                    color: "#FFFFD3D3"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.letterSpacing: 1.3
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 9
+                    anchors.top: parent.top
+                    anchors.topMargin: 9
+                    width: 24
+                    height: 24
+                    radius: 4
+                    color: removalCloseMouse.containsMouse ? "#32FF7272" : "#08FFFFFF"
+                    border.width: removalCloseMouse.containsMouse ? 1 : 0
+                    border.color: removalCloseMouse.containsMouse ? "#FFFFB4B4" : "#99FFFFFF"
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "\u00d7"
+                        color: "#EFFFFFFF"
+                        font.pixelSize: 18
+                    }
+
+                    MouseArea {
+                        id: removalCloseMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardRemovalSaving
+                        onClicked: widget.cancelCardRemoval()
+                    }
+                }
+
+                Text {
+                    x: 18
+                    y: 55
+                    width: parent.width - 36
+                    text: "Remove \"" + widget.cardRemovalTitle + "\" from the launcher?"
+                    color: "#F4FFFFFF"
+                    font.pixelSize: 14
+                    font.bold: true
+                    wrapMode: Text.Wrap
+                    maximumLineCount: 2
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    x: 18
+                    y: 102
+                    width: parent.width - 36
+                    text: "The shortcut, game files, and original image will stay on this computer."
+                    color: "#B9D1E1ED"
+                    font.pixelSize: 10
+                    wrapMode: Text.Wrap
+                }
+
+                Text {
+                    x: 18
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 17
+                    width: parent.width - 258
+                    text: widget.cardRemovalError || (widget.cardRemovalSaving ? "REMOVING CARD..." : "")
+                    color: widget.cardRemovalError ? "#FFFFB4B4" : "#BDE6F5FF"
+                    font.pixelSize: 8
+                    font.letterSpacing: 0.8
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    anchors.right: cancelRemovalButton.left
+                    anchors.rightMargin: 8
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    width: 130
+                    height: 29
+                    radius: 4
+                    color: removalConfirmMouse.containsMouse ? "#B9444444" : "#823C2A2A"
+                    border.width: 1
+                    border.color: "#FFFFB4B4"
+                    opacity: widget.cardRemovalSaving ? 0.65 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: widget.cardRemovalSaving ? "REMOVING" : "REMOVE"
+                        color: "#FFFFFFFF"
+                        font.pixelSize: 8
+                        font.bold: true
+                        font.letterSpacing: 0.9
+                    }
+
+                    MouseArea {
+                        id: removalConfirmMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardRemovalSaving
+                        onClicked: widget.confirmCardRemoval()
+                    }
+                }
+
+                Rectangle {
+                    id: cancelRemovalButton
+
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 12
+                    width: 82
+                    height: 29
+                    radius: 4
+                    color: cancelRemovalMouse.containsMouse ? "#22FFFFFF" : "#08FFFFFF"
+                    border.width: cancelRemovalMouse.containsMouse ? 1 : 0
+                    border.color: "#99FFFFFF"
+                    opacity: widget.cardRemovalSaving ? 0.5 : 1
+
+                    Text {
+                        anchors.centerIn: parent
+                        text: "CANCEL"
+                        color: "#EFFFFFFF"
+                        font.pixelSize: 8
+                        font.letterSpacing: 1.0
+                    }
+
+                    MouseArea {
+                        id: cancelRemovalMouse
+
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.cardRemovalSaving
+                        onClicked: widget.cancelCardRemoval()
                     }
                 }
             }

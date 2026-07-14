@@ -20,6 +20,7 @@ Rectangle {
 
     signal launchRequested(var game)
     signal editRequested(string requestedCardId)
+    signal removeRequested(string requestedCardId)
 
     function resolveImage(path, optional) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
@@ -217,9 +218,9 @@ Rectangle {
         id: editButton
 
         anchors.bottom: parent.bottom
-        anchors.right: parent.right
+        anchors.right: removeButton.visible ? removeButton.left : parent.right
         anchors.bottomMargin: 12
-        anchors.rightMargin: 12
+        anchors.rightMargin: removeButton.visible ? 8 : 12
         width: 28
         height: 28
         radius: 4
@@ -245,6 +246,68 @@ Rectangle {
             preventStealing: true
             cursorShape: Qt.PointingHandCursor
             onClicked: card.editRequested(card.cardId)
+        }
+    }
+
+    Rectangle {
+        id: removeButton
+
+        anchors.bottom: parent.bottom
+        anchors.right: parent.right
+        anchors.bottomMargin: 12
+        anchors.rightMargin: 12
+        width: 28
+        height: 28
+        radius: 4
+        visible: card.editMode && card.enabled
+        z: 2
+        color: removeMouse.containsMouse ? "#32FF7272" : "#08FFFFFF"
+        border.width: removeMouse.containsMouse ? 1 : 0
+        border.color: removeMouse.containsMouse ? "#FFFFB4B4" : "#99FFFFFF"
+
+        Item {
+            anchors.centerIn: parent
+            width: 16
+            height: 16
+
+            Rectangle {
+                x: 4
+                y: 5
+                width: 8
+                height: 9
+                radius: 1
+                color: "transparent"
+                border.width: 1.4
+                border.color: "#FFFFFFFF"
+            }
+
+            Rectangle {
+                x: 3
+                y: 3
+                width: 10
+                height: 1.5
+                radius: 1
+                color: "#FFFFFFFF"
+            }
+
+            Rectangle {
+                x: 6
+                y: 1
+                width: 4
+                height: 1.5
+                radius: 1
+                color: "#FFFFFFFF"
+            }
+        }
+
+        MouseArea {
+            id: removeMouse
+
+            anchors.fill: parent
+            hoverEnabled: true
+            preventStealing: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: card.removeRequested(card.cardId)
         }
     }
 }
