@@ -34,6 +34,7 @@ Item {
     signal refreshSucceeded(var result)
     signal cardDataUpdated(string cardId, var data)
     signal cardDataUpdateFinished(string cardId, bool success, string error)
+    signal manualCardPrepared(var draft, string error)
 
     function fileUrlToPath(url) {
         var value = String(url || "")
@@ -89,6 +90,30 @@ Item {
         return ConfigLoader.normalizeString(cardId, "")
     }
 
+    function normalizeFolderOrderKey(folderId) {
+        return ConfigLoader.normalizeString(folderId, "").toLowerCase()
+    }
+
+    function normalizeFolderOrders(source) {
+        var result = {}
+
+        if (!source || typeof source !== "object")
+            return result
+
+        for (var key in source) {
+            if (!hasOwn(source, key))
+                continue
+
+            var normalizedKey = normalizeFolderOrderKey(key)
+            var order = parseInt(source[key], 10)
+
+            if (normalizedKey && !isNaN(order) && order >= 0)
+                result[normalizedKey] = order
+        }
+
+        return result
+    }
+
     function normalizeCardData(source) {
         var result = {
             customTitle: "",
@@ -97,7 +122,13 @@ Item {
             folderId: "",
             order: 0,
             hasOrder: false,
-            isHidden: false
+            folderOrders: {},
+            isHidden: false,
+            sourcePath: "",
+            targetPath: "",
+            launchPath: "",
+            sourceType: "",
+            automaticTitle: ""
         }
 
         if (!source || typeof source !== "object")
@@ -107,7 +138,13 @@ Item {
         result.description = ConfigLoader.normalizeString(source.description, "")
         result.customImage = ConfigLoader.normalizeString(source.customImage, "")
         result.folderId = ConfigLoader.normalizeString(source.folderId, "")
+        result.folderOrders = normalizeFolderOrders(source.folderOrders)
         result.isHidden = source.isHidden === true || String(source.isHidden || "").toLowerCase() === "true"
+        result.sourcePath = ConfigLoader.normalizeString(source.sourcePath, "")
+        result.targetPath = ConfigLoader.normalizeString(source.targetPath, "")
+        result.launchPath = ConfigLoader.normalizeString(source.launchPath, "")
+        result.sourceType = ConfigLoader.lookupKey(source.sourceType)
+        result.automaticTitle = ConfigLoader.normalizeString(source.automaticTitle, "")
 
         if (hasOwn(source, "order")) {
             var order = parseInt(source.order, 10)
@@ -140,8 +177,28 @@ Item {
         if (normalized.hasOrder)
             result.order = normalized.order
 
+        var hasFolderOrders = false
+        var folderOrders = normalizeFolderOrders(source && source.folderOrders)
+        for (var folderId in folderOrders) {
+            if (hasOwn(folderOrders, folderId)) {
+                if (!hasFolderOrders) {
+                    result.folderOrders = {}
+                    hasFolderOrders = true
+                }
+                result.folderOrders[folderId] = folderOrders[folderId]
+            }
+        }
+
         if (normalized.isHidden)
             result.isHidden = true
+
+        for (var manualFieldIndex = 0; manualFieldIndex < ["sourcePath", "targetPath", "launchPath", "sourceType", "automaticTitle"].length; ++manualFieldIndex) {
+            var manualField = ["sourcePath", "targetPath", "launchPath", "sourceType", "automaticTitle"][manualFieldIndex]
+            var manualValue = ConfigLoader.normalizeString(source && source[manualField], "")
+
+            if (manualValue)
+                result[manualField] = manualValue
+        }
 
         var customImageSource = ConfigLoader.normalizeString(source && source.customImageSource, "")
 
@@ -532,6 +589,12 @@ Item {
         activeCardDataCardId = key
         cardDataReadAttempts = 0
 
+        var encodedCardData = ""
+        if (operation !== "remove-card-data") {
+            var dataForStore = operation === "update-card-orders" ? data : normalizedCardDataForStore(data)
+            encodedCardData = encodeURIComponent(JSON.stringify(dataForStore))
+        }
+
         var hiddenLauncher = "C:\\Windows\\System32\\wscript.exe"
         var powerShell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
         var args = quotedArguments([
@@ -557,7 +620,7 @@ Item {
             "-CardId",
             key,
             "-CardDataEncoded",
-            operation === "update-card-data" ? encodeURIComponent(JSON.stringify(normalizedCardDataForStore(data))) : ""
+            encodedCardData
         ])
 
         try {
@@ -580,10 +643,30 @@ Item {
         return startCardDataUpdate("remove-card-data", cardId, null)
     }
 
+    function prepareManualCard(data) {
+        return startCardDataUpdate("prepare-manual-card", "draft", data)
+    }
+
+    function createManualCard(cardId, data) {
+        return startCardDataUpdate("create-manual-card", cardId, data)
+    }
+
+    function updateCardOrders(data) {
+        return startCardDataUpdate("update-card-orders", "orders", data)
+    }
+
     function tryReadCardDataUpdate() {
         var data = readCardDataUpdateFile()
 
         if (data) {
+            if (data.operation === "prepare-manual-card") {
+                cardDataUpdateDelay.stop()
+                cardDataUpdating = false
+                activeCardDataCardId = ""
+                manualCardPrepared(data.manualCardDraft || null, data.cardDataUpdateError || "")
+                return
+            }
+
             if (data.cardDataUpdateError)
                 console.log("Games Menu card data update failed: " + data.cardDataUpdateError)
             else
@@ -597,6 +680,13 @@ Item {
 
         if (cardDataReadAttempts >= maxReadAttempts) {
             console.log("Games Menu card data update result was not ready")
+            if (activeCardDataCardId === "draft") {
+                cardDataUpdateDelay.stop()
+                cardDataUpdating = false
+                activeCardDataCardId = ""
+                manualCardPrepared(null, "Could not prepare new card")
+                return
+            }
             finishCardDataUpdate(activeCardDataCardId, null, "Card data update timeout")
         }
     }
