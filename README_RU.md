@@ -4,7 +4,7 @@
 ![SAOU Games Menu Preview](assets/Preview.gif)
 
 SAO Utils Games Menu - виджет-лаунчер в стиле SAO для SAO Utils 2 / NERvGear.
-Версия 1.1.0 поставляется с уже включённой папкой `shortcuts/`: помести туда
+Версия 1.2.0 поставляется с уже включённой папкой `shortcuts/`: помести туда
 `.lnk` или `.url`, и ярлыки появятся в системной папке `ALL`.
 
 Виджет запускает игры через существующий Windows shortcut / URI flow и
@@ -42,6 +42,7 @@ saou.games.menu/
 - Пользовательские папки по numeric ID.
 - Необязательный внешний `shortcutsDir` override для продвинутых сценариев.
 - Пользовательские изображения из `user-assets/<CurrentShortcutBaseName>.png`.
+- Локальные переопределения title, description, image, folder и order для карточек.
 - Пользовательские иконки папок из `folder-icons/<folderId>.png`.
 - Поддержка Windows `.lnk`, Windows `.url` и legacy direct URI launch.
 - Настраиваемое наследование subtitle через `syncSubtitle`.
@@ -189,9 +190,10 @@ SnowRunner
 saou.games.menu/state/items.json
 ```
 
-State file хранит соответствие `launchKey -> numeric ID`. Это локальное
-пользовательское состояние, оно игнорируется Git и не требует ручного
-редактирования.
+State file хранит соответствие `launchKey -> numeric ID` и необязательные
+локальные данные карточек в `cardData`. Это локальное пользовательское
+состояние, оно игнорируется Git и не требует ручного редактирования.
+Переопределения не переименовывают и не изменяют ярлыки.
 
 Когда найден новый launch identity, Games Menu назначает следующий numeric ID и
 добавляет одну global metadata строку:
@@ -286,6 +288,10 @@ target, shortcut path или image path. Title хранится один раз 
 `item=<ID>|<Title>|<GlobalSubtitle>` и наследуется всеми папками, где указан
 `game=<ID>`.
 
+Для найденных ярлыков global title синхронизируется с текущим basename ярлыка.
+Пользовательское отображаемое имя хранится отдельно в локальном
+`state/items.json`, поэтому ярлык не переименовывается.
+
 Синхронизацией subtitle управляет:
 
 ```text
@@ -347,7 +353,7 @@ sidebar использует минимальный QML fallback.
 ## Миграция v2
 
 Basename-based `configVersion=2` был экспериментальной моделью во время
-разработки v1.1.0. Текущий config v1.1.0 использует `configVersion=3`.
+разработки v1.1.0. Текущий config v1.2.0 использует `configVersion=3`.
 
 При discovery или Reload Games Menu пытается выполнить controlled v2-to-v3
 migration только когда текущий найденный basename однозначно сопоставляется с
@@ -380,7 +386,7 @@ game=Title|Shortcut|Image|Description|Accent|Id
 ```
 
 Legacy-записи показываются после найденных ярлыков. Это не основной способ
-настройки v1.1.0; для новых конфигов используй встроенную `shortcuts/` и
+настройки v1.2.0; для новых конфигов используй встроенную `shortcuts/` и
 `folder=`.
 
 После изменения `config.txt` нажми Reload; это перечитает папки, `item=`

@@ -3,7 +3,10 @@ param(
     [string] $StatePath,
     [string] $UpdateOutputPath,
     [int] $UpdateRequestId,
-    [string] $ItemsEncoded
+    [string] $ItemsEncoded,
+    [string] $Operation = "discover",
+    [string] $CardId,
+    [string] $CardDataEncoded
 )
 
 $ErrorActionPreference = "Stop"
@@ -61,6 +64,108 @@ function Decode-DiscoveredItems {
     return $result.ToArray()
 }
 
+function Get-ObjectPropertyValue {
+    param(
+        [object] $Object,
+        [string] $Name
+    )
+
+    if ($null -eq $Object) {
+        return $null
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        if ($Object.Contains($Name)) {
+            return $Object[$Name]
+        }
+
+        return $null
+    }
+
+    $property = $Object.PSObject.Properties[$Name]
+
+    if ($property) {
+        return $property.Value
+    }
+
+    return $null
+}
+
+function Test-ObjectHasProperty {
+    param(
+        [object] $Object,
+        [string] $Name
+    )
+
+    if ($null -eq $Object) {
+        return $false
+    }
+
+    if ($Object -is [System.Collections.IDictionary]) {
+        return $Object.Contains($Name)
+    }
+
+    return $null -ne $Object.PSObject.Properties[$Name]
+}
+
+function Normalize-CardId {
+    param(
+        [string] $Value
+    )
+
+    return ([string] $Value).Trim()
+}
+
+function Normalize-CardData {
+    param(
+        [object] $Data
+    )
+
+    $result = [ordered]@{}
+
+    foreach ($name in @("customTitle", "description", "customImage", "folderId")) {
+        $value = Get-ObjectPropertyValue -Object $Data -Name $name
+        $normalized = ([string] $value).Trim()
+
+        if ($normalized) {
+            $result[$name] = $normalized
+        }
+    }
+
+    if (Test-ObjectHasProperty -Object $Data -Name "order") {
+        $parsedOrder = 0
+        $orderValue = Get-ObjectPropertyValue -Object $Data -Name "order"
+
+        if ([int]::TryParse([string] $orderValue, [ref] $parsedOrder) -and $parsedOrder -ge 0) {
+            $result.order = $parsedOrder
+        }
+    }
+
+    if ($result.Count -eq 0) {
+        return $null
+    }
+
+    return [PSCustomObject] $result
+}
+
+function Decode-CardData {
+    param(
+        [string] $EncodedValue
+    )
+
+    $json = Decode-Value -Value $EncodedValue
+
+    if (-not $json) {
+        return [PSCustomObject]@{}
+    }
+
+    try {
+        return $json | ConvertFrom-Json
+    } catch {
+        throw "Card data JSON is invalid"
+    }
+}
+
 function Read-State {
     param(
         [string] $Path
@@ -68,8 +173,11 @@ function Read-State {
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return [PSCustomObject]@{
+            stateVersion = 2
             nextId = 1
             items = @()
+            cardData = [ordered]@{}
+            schemaChanged = $true
         }
     }
 
@@ -81,8 +189,11 @@ function Read-State {
 
     if ($null -eq $state) {
         return [PSCustomObject]@{
+            stateVersion = 2
             nextId = 1
             items = @()
+            cardData = [ordered]@{}
+            schemaChanged = $true
         }
     }
 
@@ -118,9 +229,31 @@ function Read-State {
         $nextId = 1
     }
 
+    $cardData = [ordered]@{}
+
+    if ($state.cardData) {
+        foreach ($property in $state.cardData.PSObject.Properties) {
+            $cardId = Normalize-CardId -Value $property.Name
+            $normalized = Normalize-CardData -Data $property.Value
+
+            if ($cardId -and $normalized) {
+                $cardData[$cardId] = $normalized
+            }
+        }
+    }
+
+    $stateVersion = 0
+
+    if ($state.PSObject.Properties["stateVersion"]) {
+        [void] [int]::TryParse([string] $state.stateVersion, [ref] $stateVersion)
+    }
+
     return [PSCustomObject]@{
+        stateVersion = 2
         nextId = $nextId
         items = @($items)
+        cardData = $cardData
+        schemaChanged = $stateVersion -lt 2 -or -not $state.PSObject.Properties["cardData"]
     }
 }
 
@@ -136,7 +269,107 @@ function Write-State {
         New-Item -ItemType Directory -Path $directory -Force | Out-Null
     }
 
-    $json = $State | ConvertTo-Json -Depth 5
+    $stateForWrite = [PSCustomObject]@{
+        stateVersion = 2
+        nextId = [int] $State.nextId
+        items = @($State.items)
+        cardData = $State.cardData
+    }
+    $json = $stateForWrite | ConvertTo-Json -Depth 8
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
+}
+
+function Get-CardData {
+    param(
+        [object] $State,
+        [string] $Id
+    )
+
+    $cardId = Normalize-CardId -Value $Id
+
+    if (-not $cardId -or -not $State.cardData.Contains($cardId)) {
+        return $null
+    }
+
+    return $State.cardData[$cardId]
+}
+
+function Set-CardData {
+    param(
+        [object] $State,
+        [string] $Id,
+        [object] $Data
+    )
+
+    $cardId = Normalize-CardId -Value $Id
+    $normalized = Normalize-CardData -Data $Data
+
+    if (-not $cardId) {
+        throw "Card ID is required"
+    }
+
+    if ($normalized) {
+        $State.cardData[$cardId] = $normalized
+    } elseif ($State.cardData.Contains($cardId)) {
+        $State.cardData.Remove($cardId)
+    }
+
+    return $normalized
+}
+
+function Preserve-ConfigTitleAsCustomTitle {
+    param(
+        [object] $State,
+        [string] $Id,
+        [string] $Title
+    )
+
+    $cleanTitle = ([string] $Title).Trim()
+
+    if (-not $cleanTitle) {
+        return $false
+    }
+
+    $existing = Get-CardData -State $State -Id $Id
+
+    if ($existing -and ([string] $existing.customTitle).Trim()) {
+        return $false
+    }
+
+    $merged = [ordered]@{
+        customTitle = $cleanTitle
+    }
+
+    foreach ($name in @("description", "customImage", "folderId")) {
+        $value = Get-ObjectPropertyValue -Object $existing -Name $name
+
+        if (([string] $value).Trim()) {
+            $merged[$name] = ([string] $value).Trim()
+        }
+    }
+
+    if (Test-ObjectHasProperty -Object $existing -Name "order") {
+        $merged.order = Get-ObjectPropertyValue -Object $existing -Name "order"
+    }
+
+    [void] (Set-CardData -State $State -Id $Id -Data ([PSCustomObject] $merged))
+    return $true
+}
+
+function Write-OutputJson {
+    param(
+        [string] $Path,
+        [object] $Value
+    )
+
+    $outputDirectory = [System.IO.Path]::GetDirectoryName($Path)
+
+    if ($outputDirectory -and -not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
+        New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
+    }
+
+    $json = $Value | ConvertTo-Json -Depth 8 -Compress
     $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $json, $utf8NoBom)
 }
@@ -307,77 +540,6 @@ function Escape-CommentLine {
     return "# Unmigrated v2 ${Reason}: " + $Line.Trim()
 }
 
-function Rename-ShortcutForTitle {
-    param(
-        [object] $Item,
-        [string] $Title
-    )
-
-    $result = [PSCustomObject]@{
-        renamed = $false
-        ready = $false
-        warning = ""
-        baseName = [string] $Item.baseName
-        fileName = [string] $Item.fileName
-        filePath = [string] $Item.filePath
-    }
-
-    $sourcePath = [string] $Item.filePath
-
-    if ([string]::IsNullOrWhiteSpace($sourcePath) -or -not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
-        $result.warning = "Could not rename shortcut for ID $($Item.id): source file is missing"
-        return $result
-    }
-
-    $cleanTitle = [string] $Title
-
-    foreach ($invalidChar in [System.IO.Path]::GetInvalidFileNameChars()) {
-        if ($cleanTitle.IndexOf($invalidChar) -ge 0) {
-            $result.warning = "Could not rename shortcut for ID $($Item.id): title contains an invalid file-name character"
-            return $result
-        }
-    }
-
-    $extension = [string] $Item.extension
-
-    if (-not $extension) {
-        $extension = [System.IO.Path]::GetExtension($sourcePath).TrimStart(".")
-    }
-
-    if (-not $extension) {
-        $result.warning = "Could not rename shortcut for ID $($Item.id): shortcut extension is missing"
-        return $result
-    }
-
-    $directory = [System.IO.Path]::GetDirectoryName($sourcePath)
-    $targetFileName = $cleanTitle + "." + $extension.TrimStart(".")
-    $targetPath = [System.IO.Path]::Combine($directory, $targetFileName)
-    $sourceFullPath = [System.IO.Path]::GetFullPath($sourcePath)
-    $targetFullPath = [System.IO.Path]::GetFullPath($targetPath)
-
-    if ([string]::Equals($sourceFullPath, $targetFullPath, [System.StringComparison]::OrdinalIgnoreCase)) {
-        $result.ready = $true
-        $result.baseName = $cleanTitle
-        $result.fileName = [System.IO.Path]::GetFileName($sourceFullPath)
-        $result.filePath = $sourceFullPath
-        return $result
-    }
-
-    if (Test-Path -LiteralPath $targetFullPath -PathType Leaf) {
-        $result.warning = "Could not rename shortcut for ID $($Item.id): target already exists: $targetFullPath"
-        return $result
-    }
-
-    Move-Item -LiteralPath $sourceFullPath -Destination $targetFullPath
-
-    $result.renamed = $true
-    $result.ready = $true
-    $result.baseName = $cleanTitle
-    $result.fileName = $targetFileName
-    $result.filePath = $targetFullPath
-    return $result
-}
-
 function Sync-StateTitles {
     param(
         [object] $State,
@@ -417,11 +579,13 @@ function Sync-StateTitles {
 function Update-Config {
     param(
         [string] $Path,
-        [object[]] $ResolvedItems
+        [object[]] $ResolvedItems,
+        [object] $State
     )
 
     $result = [PSCustomObject]@{
         configChanged = $false
+        stateChanged = $false
         configAddedItems = @()
         warnings = @()
     }
@@ -599,29 +763,14 @@ function Update-Config {
                 }
             }
 
-            if ($configTitleChanged) {
-                $renameResult = Rename-ShortcutForTitle -Item $item -Title $configTitle
-
-                if ($renameResult.warning) {
-                    $result.warnings += $renameResult.warning
-                }
-
-                $item.title = $configTitle
-
-                if ($renameResult.ready) {
-                    $item.baseName = $renameResult.baseName
-                    $item.fileName = $renameResult.fileName
-                    $item.filePath = $renameResult.filePath
-                    $item.stateTitle = $configTitle
-                } elseif ($previousTitle) {
-                    $item.stateTitle = $previousTitle
-                } else {
-                    $item.stateTitle = $discoveredTitle
-                }
-            } else {
-                $item.title = $discoveredTitle
-                $item.stateTitle = $discoveredTitle
+            if ($configTitleChanged -and (Preserve-ConfigTitleAsCustomTitle -State $State -Id $idKey -Title $configTitle)) {
+                $result.stateChanged = $true
+                $result.warnings += "Migrated configured title for ID $id to local card data; shortcut files are not renamed"
             }
+
+            # Shortcut basenames remain the automatic title source. Display overrides live in state\items.json.
+            $item.title = $discoveredTitle
+            $item.stateTitle = $discoveredTitle
 
             $subtitle = if ($parts.Length -gt 2) { ($parts[2..($parts.Length - 1)] -join "|").Trim() } else { "" }
             $replacement = "item=$id|$($item.title)|$subtitle"
@@ -691,6 +840,48 @@ function Update-Config {
     return $result
 }
 
+if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
+    $cardDataUpdateError = ""
+    $cardDataChanged = $false
+    $updatedCardData = [ordered]@{}
+
+    try {
+        $state = Read-State -Path $StatePath
+        $normalizedCardId = Normalize-CardId -Value $CardId
+
+        if (-not $normalizedCardId) {
+            throw "Card ID is required"
+        }
+
+        if ($Operation -eq "update-card-data") {
+            $decodedCardData = Decode-CardData -EncodedValue $CardDataEncoded
+            [void] (Set-CardData -State $state -Id $normalizedCardId -Data $decodedCardData)
+            $cardDataChanged = $true
+        } elseif ($state.cardData.Contains($normalizedCardId)) {
+            $state.cardData.Remove($normalizedCardId)
+            $cardDataChanged = $true
+        }
+
+        if ($state.schemaChanged -or $cardDataChanged) {
+            Write-State -Path $StatePath -State $state
+        }
+
+        $updatedCardData = $state.cardData
+    } catch {
+        $cardDataUpdateError = $_.Exception.Message
+    }
+
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId
+        operation = $Operation
+        cardId = $CardId
+        stateChanged = $cardDataChanged
+        cardDataUpdateError = $cardDataUpdateError
+        cardData = $updatedCardData
+    })
+    exit 0
+}
+
 $configChanged = $false
 $stateChanged = $false
 $configAddedItems = @()
@@ -702,13 +893,14 @@ try {
     $discoveredItems = Decode-DiscoveredItems -EncodedValue $ItemsEncoded
     $state = Read-State -Path $StatePath
     $identityResult = Resolve-Identities -DiscoveredItems $discoveredItems -State $state
-    $stateChanged = $identityResult.stateChanged -eq $true
+    $stateChanged = $identityResult.stateChanged -eq $true -or $state.schemaChanged -eq $true
     $identityItems = @($identityResult.items)
 
-    $configResult = Update-Config -Path $ConfigPath -ResolvedItems $identityItems
+    $configResult = Update-Config -Path $ConfigPath -ResolvedItems $identityItems -State $state
     $configChanged = $configResult.configChanged -eq $true
     $configAddedItems = @($configResult.configAddedItems)
     $warnings = @($configResult.warnings)
+    $stateChanged = $stateChanged -or $configResult.stateChanged -eq $true
 
     $stateTitleChanged = Sync-StateTitles -State $state -ResolvedItems $identityItems
     $stateChanged = $stateChanged -or $stateTitleChanged
@@ -728,14 +920,7 @@ $result = [PSCustomObject]@{
     configUpdateError = $configUpdateError
     warnings = @($warnings)
     items = @($identityItems)
+    cardData = if ($state) { $state.cardData } else { [ordered]@{} }
 }
 
-$outputDirectory = [System.IO.Path]::GetDirectoryName($UpdateOutputPath)
-
-if ($outputDirectory -and -not (Test-Path -LiteralPath $outputDirectory -PathType Container)) {
-    New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
-}
-
-$json = $result | ConvertTo-Json -Depth 8 -Compress
-$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
-[System.IO.File]::WriteAllText($UpdateOutputPath, $json, $utf8NoBom)
+Write-OutputJson -Path $UpdateOutputPath -Value $result

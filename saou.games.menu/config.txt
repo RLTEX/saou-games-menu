@@ -25,6 +25,9 @@ syncSubtitle=true
 # IDs are assigned automatically from shortcut launch identity and stored in:
 #   state\items.json
 #
+# Per-card local overrides for title, description, image, folder, and order
+# are also stored in state\items.json. They do not rename or modify shortcuts.
+#
 # Folder entries can use:
 # folder=<folderId>|<DisplayName>|<MaxColumns>
 # game=<ID>
