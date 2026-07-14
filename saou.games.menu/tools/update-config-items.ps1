@@ -884,6 +884,99 @@ function Add-WidgetFolder {
     Move-Item -LiteralPath $temporary -Destination $Path -Force
 }
 
+function Remove-WidgetFolder {
+    param(
+        [string] $ConfigPath,
+        [string] $StatePath,
+        [string] $FolderId
+    )
+
+    $folderId = Normalize-FolderOrderKey -Value $FolderId
+    if ($folderId -eq "all") { throw "ALL cannot be removed" }
+    if (-not (Test-Path -LiteralPath $ConfigPath -PathType Leaf)) { throw "Config file was not found" }
+
+    $result = New-Object "System.Collections.Generic.List[string]"
+    $currentFolderId = ""
+    $found = $false
+
+    foreach ($line in @(Get-Content -LiteralPath $ConfigPath -Encoding UTF8)) {
+        $folderMatch = [regex]::Match($line, "^\s*folder\s*=\s*([^|\s#]+)")
+        if ($folderMatch.Success) {
+            $currentFolderId = $folderMatch.Groups[1].Value.Trim().ToLowerInvariant()
+            if ($currentFolderId -eq $folderId) {
+                $found = $true
+                continue
+            }
+            $result.Add($line)
+            continue
+        }
+
+        if ($currentFolderId -eq $folderId -and $line -match "^\s*game\s*=") {
+            continue
+        }
+
+        $result.Add($line)
+    }
+
+    if (-not $found) { throw "Folder was not found" }
+
+    $stateExisted = Test-Path -LiteralPath $StatePath -PathType Leaf
+    $originalState = if ($stateExisted) { [System.IO.File]::ReadAllBytes($StatePath) } else { $null }
+    $state = Read-State -Path $StatePath
+
+    foreach ($cardId in @($state.cardData.Keys)) {
+        $card = Normalize-CardData -Data $state.cardData[$cardId]
+        $changed = $false
+
+        if (([string] (Get-ObjectPropertyValue -Object $card -Name "folderId")).Trim().ToLowerInvariant() -eq $folderId) {
+            [void] $card.PSObject.Properties.Remove("folderId")
+            $changed = $true
+        }
+
+        foreach ($propertyName in @("additionalFolderIds", "excludedFolderIds")) {
+            $values = Normalize-AdditionalFolderIds -Value (Get-ObjectPropertyValue -Object $card -Name $propertyName)
+            $nextValues = @($values | Where-Object { $_ -ne $folderId })
+            if ($nextValues.Count -ne $values.Count) {
+                $changed = $true
+                if ($nextValues.Count -gt 0) {
+                    if (Test-ObjectHasProperty -Object $card -Name $propertyName) { $card.$propertyName = @($nextValues) }
+                    else { $card | Add-Member -NotePropertyName $propertyName -NotePropertyValue @($nextValues) }
+                } else {
+                    [void] $card.PSObject.Properties.Remove($propertyName)
+                }
+            }
+        }
+
+        $orders = Normalize-FolderOrders -Value (Get-ObjectPropertyValue -Object $card -Name "folderOrders")
+        if ($orders.Contains($folderId)) {
+            [void] $orders.Remove($folderId)
+            $changed = $true
+            if ($orders.Count -gt 0) {
+                if (Test-ObjectHasProperty -Object $card -Name "folderOrders") { $card.folderOrders = [PSCustomObject] $orders }
+                else { $card | Add-Member -NotePropertyName "folderOrders" -NotePropertyValue ([PSCustomObject] $orders) }
+            } else {
+                [void] $card.PSObject.Properties.Remove("folderOrders")
+            }
+        }
+
+        if ($changed) { [void] (Set-CardData -State $state -Id $cardId -Data $card) }
+    }
+
+    if ($state.folderOverrides.Contains($folderId)) { [void] $state.folderOverrides.Remove($folderId) }
+
+    try {
+        Write-State -Path $StatePath -State $state
+        $temporary = $ConfigPath + ".tmp"
+        [System.IO.File]::WriteAllLines($temporary, @($result.ToArray()), (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $temporary -Destination $ConfigPath -Force
+    } catch {
+        if ($stateExisted) { [System.IO.File]::WriteAllBytes($StatePath, $originalState) }
+        throw
+    }
+
+    return $state
+}
+
 function Resolve-Identities {
     param(
         [object[]] $DiscoveredItems,
@@ -1699,6 +1792,23 @@ if ($Operation -eq "create-folder") {
     Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
         requestId = $UpdateRequestId; operation = $Operation; cardId = $CardId; stateChanged = -not [bool]$cardDataUpdateError
         cardDataUpdateError = $cardDataUpdateError; cardData = [ordered]@{}
+    })
+    exit 0
+}
+
+if ($Operation -eq "remove-folder") {
+    $cardDataUpdateError = ""
+    $updatedCardData = [ordered]@{}
+    $updatedFolderOverrides = [ordered]@{}
+    try {
+        $payload = Decode-CardData -EncodedValue $CardDataEncoded
+        $state = Remove-WidgetFolder -ConfigPath $ConfigPath -StatePath $StatePath -FolderId ([string] (Get-ObjectPropertyValue -Object $payload -Name "folderId"))
+        $updatedCardData = $state.cardData
+        $updatedFolderOverrides = $state.folderOverrides
+    } catch { $cardDataUpdateError = $_.Exception.Message }
+    Write-OutputJson -Path $UpdateOutputPath -Value ([PSCustomObject]@{
+        requestId = $UpdateRequestId; operation = $Operation; cardId = $CardId; stateChanged = -not [bool]$cardDataUpdateError
+        cardDataUpdateError = $cardDataUpdateError; cardData = $updatedCardData; folderOverrides = $updatedFolderOverrides
     })
     exit 0
 }

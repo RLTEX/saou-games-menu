@@ -17,6 +17,7 @@ Item {
     signal openShortcutsRequested()
     signal settingsRequested()
     signal folderEditRequested(string folderId)
+    signal folderRemoveRequested(string folderId)
     signal folderCreateRequested()
     signal reloadRequested()
     signal editModeRequested()
@@ -25,14 +26,15 @@ Item {
         if (!editMode || !cardDragActive)
             return ""
 
-        var point = mapFromItem(null, sceneX, sceneY)
+        var point = folderList.mapFromItem(null, sceneX, sceneY)
         var rowHeight = 42 + folderColumn.spacing
-        var index = Math.floor((point.y - folderColumn.y) / rowHeight)
+        var contentY = point.y + folderList.contentY
+        var index = Math.floor((contentY - folderColumn.y) / rowHeight)
 
-        if (point.x < 0 || point.x > width || index < 0 || !folders || index >= folders.length)
+        if (point.x < 0 || point.x > folderList.width || point.y < 0 || point.y > folderList.height || index < 0 || !folders || index >= folders.length)
             return ""
 
-        var withinRow = point.y - folderColumn.y - index * rowHeight
+        var withinRow = contentY - folderColumn.y - index * rowHeight
         var folder = folders[index]
         return withinRow >= 0 && withinRow <= 42 && folder && folder.id !== cardDragSourceFolderId ? String(folder.id) : ""
     }
@@ -61,20 +63,32 @@ Item {
         return "../" + value
     }
 
-    Column {
-        id: folderColumn
+    Flickable {
+        id: folderList
 
         anchors.left: parent.left
         anchors.right: parent.right
+        anchors.rightMargin: 6
         anchors.top: parent.top
         anchors.bottom: toolRow.top
         anchors.bottomMargin: 10
-        spacing: 8
+        clip: true
+        contentWidth: width
+        contentHeight: folderColumn.height
+        boundsBehavior: Flickable.StopAtBounds
+        interactive: contentHeight > height
 
-        Repeater {
-            model: sidebar.folders ? sidebar.folders.length : 0
+        Column {
+            id: folderColumn
 
-            Rectangle {
+            width: folderList.width
+            height: implicitHeight
+            spacing: 8
+
+            Repeater {
+                model: sidebar.folders ? sidebar.folders.length : 0
+
+                Rectangle {
                 id: folderButton
 
                 property var folder: sidebar.folders[index]
@@ -171,7 +185,7 @@ Item {
                     anchors.left: iconBox.right
                     anchors.leftMargin: 9
                     anchors.right: parent.right
-                    anchors.rightMargin: sidebar.editMode && folder ? 31 : 8
+                    anchors.rightMargin: sidebar.editMode && folder ? 57 : 8
                     anchors.verticalCenter: parent.verticalCenter
                     text: folder && folder.displayName ? folder.displayName : "FOLDER"
                     color: folderButton.dropTarget || folderButton.selected ? "#FFFFFFFF" : "#A8D7E6F0"
@@ -189,6 +203,29 @@ Item {
                     cursorShape: Qt.PointingHandCursor
                     enabled: !!folderButton.folder
                     onClicked: sidebar.folderSelected(folderButton.folder.id)
+                }
+
+                Rectangle {
+                    anchors.right: parent.right
+                    anchors.rightMargin: 33
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: 22
+                    height: 22
+                    radius: 4
+                    visible: sidebar.editMode && folder && !folder.system
+                    color: folderRemoveMouse.containsMouse ? "#32FF7272" : "#0CFFFFFF"
+                    border.width: folderRemoveMouse.containsMouse ? 1 : 0
+                    border.color: folderRemoveMouse.containsMouse ? "#FFFFB4B4" : "#66DDF6FF"
+
+                    Text { anchors.centerIn: parent; text: "−"; color: folderRemoveMouse.containsMouse ? "#FFFFD3D3" : "#B8F2FDFF"; font.pixelSize: 17; font.bold: true }
+
+                    MouseArea {
+                        id: folderRemoveMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: { mouse.accepted = true; sidebar.folderRemoveRequested(folderButton.folder.id) }
+                    }
                 }
 
                 Rectangle {
@@ -215,6 +252,8 @@ Item {
                 }
             }
         }
+        }
+
     }
 
     Row {
@@ -354,5 +393,6 @@ Item {
                 onClicked: sidebar.folderCreateRequested()
             }
         }
+
     }
 }

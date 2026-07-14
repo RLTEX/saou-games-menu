@@ -628,7 +628,7 @@ Item {
         var encodedCardData = ""
         if (operation !== "remove-card-data") {
             var dataForStore = operation === "update-card-orders" || operation === "move-card" || operation === "copy-card-to-folder"
-                    || operation === "update-folder-overrides" || operation === "save-widget-settings" || operation === "create-folder" ? data : normalizedCardDataForStore(data)
+                    || operation === "update-folder-overrides" || operation === "save-widget-settings" || operation === "create-folder" || operation === "remove-folder" ? data : normalizedCardDataForStore(data)
             encodedCardData = encodeURIComponent(JSON.stringify(dataForStore))
         }
 
@@ -712,6 +712,10 @@ Item {
 
     function createFolder(data) {
         return startCardDataUpdate("create-folder", "folder", data)
+    }
+
+    function removeFolder(folderId) {
+        return startCardDataUpdate("remove-folder", "folder", { folderId: folderId })
     }
 
     function tryReadCardDataUpdate() {
