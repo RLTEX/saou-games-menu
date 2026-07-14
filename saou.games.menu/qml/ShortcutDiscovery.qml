@@ -96,7 +96,8 @@ Item {
             customImage: "",
             folderId: "",
             order: 0,
-            hasOrder: false
+            hasOrder: false,
+            isHidden: false
         }
 
         if (!source || typeof source !== "object")
@@ -106,6 +107,7 @@ Item {
         result.description = ConfigLoader.normalizeString(source.description, "")
         result.customImage = ConfigLoader.normalizeString(source.customImage, "")
         result.folderId = ConfigLoader.normalizeString(source.folderId, "")
+        result.isHidden = source.isHidden === true || String(source.isHidden || "").toLowerCase() === "true"
 
         if (hasOwn(source, "order")) {
             var order = parseInt(source.order, 10)
@@ -137,6 +139,14 @@ Item {
 
         if (normalized.hasOrder)
             result.order = normalized.order
+
+        if (normalized.isHidden)
+            result.isHidden = true
+
+        var customImageSource = ConfigLoader.normalizeString(source && source.customImageSource, "")
+
+        if (customImageSource)
+            result.customImageSource = customImageSource
 
         return result
     }

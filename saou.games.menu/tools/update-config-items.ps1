@@ -6,7 +6,8 @@ param(
     [string] $ItemsEncoded,
     [string] $Operation = "discover",
     [string] $CardId,
-    [string] $CardDataEncoded
+    [string] $CardDataEncoded,
+    [string] $CustomImageDirectory
 )
 
 $ErrorActionPreference = "Stop"
@@ -141,6 +142,12 @@ function Normalize-CardData {
         }
     }
 
+    $hiddenValue = Get-ObjectPropertyValue -Object $Data -Name "isHidden"
+
+    if ($hiddenValue -eq $true -or ([string] $hiddenValue).Trim().ToLowerInvariant() -eq "true") {
+        $result.isHidden = $true
+    }
+
     if ($result.Count -eq 0) {
         return $null
     }
@@ -166,6 +173,229 @@ function Decode-CardData {
     }
 }
 
+function Get-ManagedImageDirectory {
+    if ($CustomImageDirectory) {
+        return [System.IO.Path]::GetFullPath($CustomImageDirectory)
+    }
+
+    $localAppData = [System.Environment]::GetFolderPath([System.Environment+SpecialFolder]::LocalApplicationData)
+
+    if ([string]::IsNullOrWhiteSpace($localAppData)) {
+        throw "Local application data directory is unavailable"
+    }
+
+    return Join-Path $localAppData "SAO Utils\Games Menu\custom-images"
+}
+
+function Get-SafeCardFileStem {
+    param(
+        [string] $CardId
+    )
+
+    $safe = (Normalize-CardId -Value $CardId) -replace "[^A-Za-z0-9_-]", "_"
+
+    if (-not $safe) {
+        throw "Card ID is invalid for an image file name"
+    }
+
+    return $safe
+}
+
+function Resolve-ImageSourcePath {
+    param(
+        [string] $Value
+    )
+
+    $source = ([string] $Value).Trim()
+
+    if (-not $source) {
+        throw "Image source is required"
+    }
+
+    if ($source.StartsWith("file:", [System.StringComparison]::OrdinalIgnoreCase)) {
+        try {
+            $uri = New-Object System.Uri($source)
+
+            if (-not $uri.IsFile) {
+                throw "Only local image files are supported"
+            }
+
+            return $uri.LocalPath
+        } catch {
+            throw "Image source path is invalid"
+        }
+    }
+
+    return [System.IO.Path]::GetFullPath($source)
+}
+
+function Test-SupportedImageContent {
+    param(
+        [string] $Path,
+        [string] $Extension
+    )
+
+    $buffer = New-Object byte[] 12
+    $stream = $null
+
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        $read = $stream.Read($buffer, 0, $buffer.Length)
+    } finally {
+        if ($stream) {
+            $stream.Dispose()
+        }
+    }
+
+    $extension = $Extension.ToLowerInvariant()
+
+    if ($extension -eq ".png") {
+        return $read -ge 8 -and $buffer[0] -eq 137 -and $buffer[1] -eq 80 -and $buffer[2] -eq 78 -and $buffer[3] -eq 71 -and $buffer[4] -eq 13 -and $buffer[5] -eq 10 -and $buffer[6] -eq 26 -and $buffer[7] -eq 10
+    }
+
+    if ($extension -eq ".jpg" -or $extension -eq ".jpeg") {
+        return $read -ge 3 -and $buffer[0] -eq 255 -and $buffer[1] -eq 216 -and $buffer[2] -eq 255
+    }
+
+    if ($extension -eq ".webp") {
+        return $read -ge 12 -and [System.Text.Encoding]::ASCII.GetString($buffer, 0, 4) -eq "RIFF" -and [System.Text.Encoding]::ASCII.GetString($buffer, 8, 4) -eq "WEBP"
+    }
+
+    return $false
+}
+
+function Import-CardImage {
+    param(
+        [string] $CardId,
+        [string] $SourceFile
+    )
+
+    $sourcePath = Resolve-ImageSourcePath -Value $SourceFile
+
+    if (-not (Test-Path -LiteralPath $sourcePath -PathType Leaf)) {
+        throw "Selected image file was not found"
+    }
+
+    $sourceExtension = [System.IO.Path]::GetExtension($sourcePath).ToLowerInvariant()
+
+    if ($sourceExtension -notin @(".png", ".jpg", ".jpeg", ".webp")) {
+        throw "Only PNG, JPG, JPEG, and WebP images are supported"
+    }
+
+    if (-not (Test-SupportedImageContent -Path $sourcePath -Extension $sourceExtension)) {
+        throw "Selected file does not contain a supported image"
+    }
+
+    $destinationExtension = if ($sourceExtension -eq ".jpeg") { ".jpg" } else { $sourceExtension }
+    $directory = Get-ManagedImageDirectory
+
+    if (-not (Test-Path -LiteralPath $directory -PathType Container)) {
+        New-Item -ItemType Directory -Path $directory -Force | Out-Null
+    }
+
+    $fileName = (Get-SafeCardFileStem -CardId $CardId) + "-" + [System.Guid]::NewGuid().ToString("N") + $destinationExtension
+    $destination = Join-Path $directory $fileName
+
+    try {
+        Copy-Item -LiteralPath $sourcePath -Destination $destination -ErrorAction Stop
+
+        if (-not (Test-Path -LiteralPath $destination -PathType Leaf) -or (Get-Item -LiteralPath $destination).Length -le 0) {
+            throw "Image copy could not be verified"
+        }
+    } catch {
+        if (Test-Path -LiteralPath $destination -PathType Leaf) {
+            Remove-Item -LiteralPath $destination -Force -ErrorAction SilentlyContinue
+        }
+
+        throw
+    }
+
+    return [System.IO.Path]::GetFullPath($destination)
+}
+
+function Test-ManagedImagePath {
+    param(
+        [string] $Path,
+        [string] $CardId
+    )
+
+    if (-not $Path) {
+        return $false
+    }
+
+    try {
+        $directory = [System.IO.Path]::GetFullPath((Get-ManagedImageDirectory))
+        $candidate = [System.IO.Path]::GetFullPath((Resolve-ImageSourcePath -Value $Path))
+    } catch {
+        return $false
+    }
+
+    $separator = [string] [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $directory.EndsWith($separator)) {
+        $directory += [System.IO.Path]::DirectorySeparatorChar
+    }
+
+    if (-not $candidate.StartsWith($directory, [System.StringComparison]::OrdinalIgnoreCase)) {
+        return $false
+    }
+
+    $pattern = "^" + [System.Text.RegularExpressions.Regex]::Escape((Get-SafeCardFileStem -CardId $CardId)) + "-[0-9a-f]{32}\.(png|jpg|webp)$"
+    return [System.IO.Path]::GetFileName($candidate) -match $pattern
+}
+
+function Test-ImagePathReferenced {
+    param(
+        [object] $State,
+        [string] $Path
+    )
+
+    if (-not $State -or -not $State.cardData -or -not $Path) {
+        return $false
+    }
+
+    try {
+        $target = [System.IO.Path]::GetFullPath((Resolve-ImageSourcePath -Value $Path))
+    } catch {
+        return $false
+    }
+
+    foreach ($entry in $State.cardData.GetEnumerator()) {
+        $candidate = [string] (Get-ObjectPropertyValue -Object $entry.Value -Name "customImage")
+
+        if (-not $candidate) {
+            continue
+        }
+
+        try {
+            if ([System.IO.Path]::GetFullPath((Resolve-ImageSourcePath -Value $candidate)).Equals($target, [System.StringComparison]::OrdinalIgnoreCase)) {
+                return $true
+            }
+        } catch {
+        }
+    }
+
+    return $false
+}
+
+function Remove-ManagedImageIfUnused {
+    param(
+        [object] $State,
+        [string] $CardId,
+        [string] $Path
+    )
+
+    if (-not (Test-ManagedImagePath -Path $Path -CardId $CardId) -or (Test-ImagePathReferenced -State $State -Path $Path)) {
+        return
+    }
+
+    try {
+        Remove-Item -LiteralPath (Resolve-ImageSourcePath -Value $Path) -Force -ErrorAction Stop
+    } catch {
+        Write-Warning "Games Menu could not remove managed image '$Path': $($_.Exception.Message)"
+    }
+}
+
 function Read-State {
     param(
         [string] $Path
@@ -173,7 +403,7 @@ function Read-State {
 
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
         return [PSCustomObject]@{
-            stateVersion = 2
+            stateVersion = 3
             nextId = 1
             items = @()
             cardData = [ordered]@{}
@@ -189,7 +419,7 @@ function Read-State {
 
     if ($null -eq $state) {
         return [PSCustomObject]@{
-            stateVersion = 2
+            stateVersion = 3
             nextId = 1
             items = @()
             cardData = [ordered]@{}
@@ -249,11 +479,11 @@ function Read-State {
     }
 
     return [PSCustomObject]@{
-        stateVersion = 2
+        stateVersion = 3
         nextId = $nextId
         items = @($items)
         cardData = $cardData
-        schemaChanged = $stateVersion -lt 2 -or -not $state.PSObject.Properties["cardData"]
+        schemaChanged = $stateVersion -lt 3 -or -not $state.PSObject.Properties["cardData"]
     }
 }
 
@@ -270,7 +500,7 @@ function Write-State {
     }
 
     $stateForWrite = [PSCustomObject]@{
-        stateVersion = 2
+        stateVersion = 3
         nextId = [int] $State.nextId
         items = @($State.items)
         cardData = $State.cardData
@@ -341,7 +571,7 @@ function Preserve-ConfigTitleAsCustomTitle {
         customTitle = $cleanTitle
     }
 
-    foreach ($name in @("description", "customImage", "folderId")) {
+    foreach ($name in @("description", "customImage", "folderId", "isHidden")) {
         $value = Get-ObjectPropertyValue -Object $existing -Name $name
 
         if (([string] $value).Trim()) {
@@ -844,6 +1074,8 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
     $cardDataUpdateError = ""
     $cardDataChanged = $false
     $updatedCardData = [ordered]@{}
+    $newManagedImage = ""
+    $previousCustomImage = ""
 
     try {
         $state = Read-State -Path $StatePath
@@ -853,8 +1085,23 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
             throw "Card ID is required"
         }
 
+        $previousCardData = Get-CardData -State $state -Id $normalizedCardId
+        $previousCustomImage = [string] (Get-ObjectPropertyValue -Object $previousCardData -Name "customImage")
+
         if ($Operation -eq "update-card-data") {
             $decodedCardData = Decode-CardData -EncodedValue $CardDataEncoded
+            $customImageSource = [string] (Get-ObjectPropertyValue -Object $decodedCardData -Name "customImageSource")
+
+            if ($customImageSource.Trim()) {
+                $newManagedImage = Import-CardImage -CardId $normalizedCardId -SourceFile $customImageSource
+
+                if (Test-ObjectHasProperty -Object $decodedCardData -Name "customImage") {
+                    $decodedCardData.customImage = $newManagedImage
+                } else {
+                    $decodedCardData | Add-Member -NotePropertyName customImage -NotePropertyValue $newManagedImage
+                }
+            }
+
             [void] (Set-CardData -State $state -Id $normalizedCardId -Data $decodedCardData)
             $cardDataChanged = $true
         } elseif ($state.cardData.Contains($normalizedCardId)) {
@@ -866,8 +1113,16 @@ if ($Operation -eq "update-card-data" -or $Operation -eq "remove-card-data") {
             Write-State -Path $StatePath -State $state
         }
 
+        if ($cardDataChanged -and $previousCustomImage) {
+            Remove-ManagedImageIfUnused -State $state -CardId $normalizedCardId -Path $previousCustomImage
+        }
+
         $updatedCardData = $state.cardData
     } catch {
+        if ($newManagedImage -and (Test-Path -LiteralPath $newManagedImage -PathType Leaf)) {
+            Remove-Item -LiteralPath $newManagedImage -Force -ErrorAction SilentlyContinue
+        }
+
         $cardDataUpdateError = $_.Exception.Message
     }
 
