@@ -6,8 +6,8 @@
     "ru": "Games Menu"
   },
   "description": {
-    "en": "SAO-style local game library with editable cards, folders, and shortcut discovery.",
-    "ru": "Локальная библиотека игр в стиле SAO с редактируемыми карточками, категориями и поиском ярлыков."
+    "en": "Minimalist local game library with editable cards, folders, and shortcut discovery.",
+    "ru": "Минималистичная локальная библиотека игр с редактируемыми карточками, категориями и поиском ярлыков."
   },
   "author": {
     "name": "SAO Utils Games Menu contributors"

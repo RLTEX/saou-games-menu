@@ -4,7 +4,7 @@
 
 ![Games Menu package preview](saou.games.menu/preview.png)
 
-Games Menu is an SAO-style game and application launcher widget for **SAO Utils 2** / **NERvGear** on Windows.
+Games Menu is a minimalist game and application launcher widget for **SAO Utils 2** / **NERvGear** on Windows.
 
 Version **1.2.0** turns the widget into a local game library: add launchers, organise cards into folders, customise their appearance, and keep the original game files untouched.
 
