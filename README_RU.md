@@ -1,461 +1,131 @@
-[English](README.md) | [Русский](README_RU.md)
+[English](README.md)
+
 # SAO Utils Games Menu
 
-![SAOU Games Menu Preview](assets/Preview.gif)
+![Превью пакета Games Menu](saou.games.menu/preview.png)
 
-SAO Utils Games Menu - виджет-лаунчер в стиле SAO для SAO Utils 2 / NERvGear.
-Версия 1.2.0 поставляется с уже включённой папкой `shortcuts/`: помести туда
-`.lnk` или `.url`, и ярлыки появятся в системной папке `ALL`.
+Games Menu — виджет-лаунчер игр и приложений в стиле SAO для **SAO Utils 2** / **NERvGear** под Windows.
 
-Виджет запускает игры через существующий Windows shortcut / URI flow и
-закрывается через настроенное действие SAO Utils
-`Hide Widget / Скрыть виджет -> Games Menu`.
-
-## Структура Пакета
-
-Release package уже содержит нужные для обычного использования папки:
-
-```text
-saou.games.menu/
-|-- assets/
-|-- folder-icons/
-|-- qml/
-|-- runtime/
-|-- shortcuts/
-|-- state/
-|-- tools/
-|-- user-assets/
-|-- config.txt
-|-- module.qml
-`-- package.json
-```
-
-Для обычной установки используй уже включённую `saou.games.menu/shortcuts/`.
-`runtime/`, `state/` и `tools/` - технические package-local папки для discovery
-и хранения стабильных ID.
+Версия **1.2.0** превращает виджет в локальную библиотеку: можно добавлять ярлыки, раскладывать карточки по категориям, менять их вид и при этом не трогать исходные файлы игр.
 
 ## Возможности
 
-- Автоматическое обнаружение `.lnk` и `.url` из уже включённой папки `shortcuts/`.
-- Стабильные числовые ID игр по launch identity, а не по имени файла ярлыка.
-- Системная папка `ALL` со всеми найденными ярлыками.
-- Пользовательские папки по numeric ID.
-- Необязательный внешний `shortcutsDir` override для продвинутых сценариев.
-- Пользовательские изображения из `user-assets/<CurrentShortcutBaseName>.png`.
-- Локальные переопределения title, description, image, folder и order для карточек.
-- Пользовательские иконки папок из `folder-icons/<folderId>.png`.
-- Поддержка Windows `.lnk`, Windows `.url` и legacy direct URI launch.
-- Настраиваемое наследование subtitle через `syncSubtitle`.
-- Анимация закрытия после крестика или запуска игры.
+- Автоматически находит `.lnk` и `.url` в папке `shortcuts/` внутри пакета.
+- Позволяет добавить один `.lnk`, `.url` или `.exe` перетаскиванием в Edit Mode.
+- Назначает каждой карточке стабильный числовой ID по launch identity.
+- Позволяет изменить отображаемое название, описание и изображение карточки без переименования ярлыка.
+- Импортирует выбранные изображения во внутреннее локальное хранилище виджета. Поддерживаются PNG, JPG/JPEG и WebP, если их читает среда SAO Utils.
+- В Edit Mode доступны безопасное редактирование, удаление, восстановление, сортировка и перенос карточек между категориями.
+- Поддерживает пользовательские категории, их изображения и настройку масштаба иконок категорий.
+- Сохраняет порядок, принадлежность к категориям и пользовательские изменения после перезапуска.
+- Использует локальные управляющие иконки на основе Lucide. См. [уведомления о сторонних компонентах](THIRD_PARTY_NOTICES.md).
 
 ## Требования
 
-- SAO Utils 2.
-- NERvGear API 1.x.
-- Qt 5 / Qt Quick 2.12 / Qt Quick Controls 2.12.
-- Windows PowerShell и Windows Script Host, входящие в поддерживаемые установки Windows.
-- Windows-ярлыки `.lnk` или `.url` для автоматического обнаружения.
+- Windows с SAO Utils 2 и NERvGear API 1.x.
+- Среда Qt 5 / Qt Quick 2.12, поставляемая с SAO Utils.
+- Windows PowerShell и Windows Script Host.
 
 ## Установка
 
-1. Скачай release ZIP.
-2. Распакуй папку `saou.games.menu`.
-3. Скопируй `saou.games.menu` в папку пакетов SAO Utils 2 / NERvGear.
-4. Помести `.lnk` или `.url` в уже включённую в пакет папку `saou.games.menu/shortcuts/`.
-5. Открой Games Menu. Уже существующие ярлыки обнаруживаются автоматически при старте.
-6. Перезапусти SAO Utils 2, если пакет ещё не был загружен.
+1. Скачай архив релиза и распакуй папку `saou.games.menu`.
+2. Скопируй её в папку пакетов SAO Utils / NERvGear.
+3. Перезапусти SAO Utils, если пакет ещё не появился в списке.
+4. Открой **Games Menu**.
+5. Один раз настрой действие закрытия:
 
-## Первичная Настройка
+   ```text
+   ПКМ по Games Menu
+   -> Close Action...
+   -> Widget / Виджет
+   -> Hide Widget / Скрыть виджет
+   -> Games Menu
+   -> OK
+   ```
 
-Games Menu использует NERvGear `ActionSource` для системного закрытия. Реальной
-видимостью виджета должен управлять SAO Utils, поэтому один раз настрой действие
-закрытия:
+Видимостью виджета управляет SAO Utils. Для повторного открытия используй **Show Widget -> Games Menu** или **Toggle Widget -> Games Menu**.
 
-```text
-ПКМ по Games Menu
--> Close Action...
--> Widget / Виджет
--> Hide Widget / Скрыть виджет
--> Games Menu
--> OK
-```
+## Добавление игр
 
-Без этой настройки крестик и автоматическое закрытие после запуска игры не
-смогут скрыть виджет. Для открытия меню кнопкой или плиткой SAO Utils используй:
+### Через папку ярлыков
 
-```text
-Show Widget / Показать виджет -> Games Menu
-```
-
-`Toggle Widget / Переключить виджет -> Games Menu` тоже можно использовать
-после настройки Close Action.
-
-## Конфигурация
-
-Редактируй:
-
-```text
-saou.games.menu/config.txt
-```
-
-Для личных локальных настроек, которые не нужно коммитить, создай:
-
-```text
-saou.games.menu/config.local.txt
-```
-
-Загрузчик сначала читает `config.local.txt`. Если его нет, используется
-`config.txt`.
-
-В обычной конфигурации `shortcutsDir` не нужен. Если `shortcutsDir` отсутствует
-или пустой, Games Menu сканирует:
+Помести `.lnk` или `.url` сюда:
 
 ```text
 saou.games.menu/shortcuts/
 ```
 
-Продвинутые пользователи могут переопределить папку ярлыков:
+Карточки появятся в системной категории **ALL** после первого сканирования или ручного Reload.
 
-```text
-shortcutsDir=C:\Games\Shortcuts
-```
+### Перетаскиванием
 
-Windows-пути можно писать с обычными обратными слэшами.
+1. Включи **Edit Mode / Режим редактирования** кнопкой с карандашом в сайдбаре.
+2. Перетащи на виджет один `.lnk`, `.url` или `.exe`.
+3. Проверь данные в редакторе новой карточки и нажми **Add / Добавить**.
 
-## Полный Пример Конфига
+Исходный ярлык или `.exe` не переименовывается, не перемещается и не изменяется. Виджет хранит собственную ссылку запуска; при необходимости использует управляемую копию ярлыка, чтобы карточка не зависела от удаления исходника.
 
-```text
-configVersion=3
-startHidden=false
-maxColumns=3
-syncSubtitle=true
+## Редактирование карточек и категорий
 
-# Game metadata:
-# item=<ID>|<Title>|<GlobalSubtitle>
+В Edit Mode запуск игр заблокирован, поэтому карточки можно менять без случайного запуска.
 
-item=1|Game|Game Subtitle
-item=2|SnowRunner|OFF-ROAD SIMULATOR
+- Измени отображаемое название, описание и изображение карточки.
+- Очисти пользовательское название или изображение, чтобы вернуться к автоматическому варианту.
+- Меняй порядок карточек внутри категории кнопкой захвата.
+- Перетащи карточку на другую категорию, чтобы перенести её. Если она уже есть там, виджет предложит копировать или переместить.
+- Скрой карточку из лаунчера и верни её через **Settings / Настройки -> Restore / Восстановить**.
+- Создавай, редактируй и удаляй пользовательские категории.
+- Назначай изображение категории через путь или drop изображения.
+- Меняй **Category Icon Scale / Масштаб иконок категорий** в настройках виджета.
 
-folder=favorites|FAVORITES|4
-    game=1
-    game=2
+Категория **ALL** системная: её нельзя удалить.
 
-folder=racing|RACING|2
-    game=2|RACING GAME
+## Данные и файлы пользователя
 
-# Optional advanced override:
-# shortcutsDir=C:\Games\Shortcuts
-```
+Games Menu хранит пользовательское состояние локально и не записывает метаданные в файлы игр.
 
-ID назначаются автоматически после discovery. Обычно пользователю не нужно
-придумывать ID для новых найденных игр вручную.
+| Данные | Расположение | Примечание |
+| --- | --- | --- |
+| Стабильные ID и состояние карточек | `saou.games.menu/state/items.json` | Генерируемый локальный файл, игнорируется Git. |
+| Ярлыки пользователя | `saou.games.menu/shortcuts/` | Стандартная папка сканирования, содержимое игнорируется Git. |
+| Автоматические изображения старого формата | `saou.games.menu/user-assets/` | Необязательные изображения по имени ярлыка, игнорируются Git. |
+| Изображения категорий | `saou.games.menu/folder-icons/` | Пользовательские файлы, игнорируются Git. |
+| Импортированные изображения карточек | `%LOCALAPPDATA%\SAO Utils\Games Menu\custom-images` | Управляемые копии; исходное изображение не меняется. |
+| Импортированные ярлыки | `%LOCALAPPDATA%\SAO Utils\Games Menu\managed-shortcuts` | Управляемые копии, если карточка должна пережить удаление исходника. |
 
-## Discovery И Stable ID
-
-Помести `.lnk` или `.url` в уже включённую в пакет папку `shortcuts/`. Games
-Menu сканирует её и создаёт карточку запуска для каждого найденного ярлыка.
-При создании component выполняется один controlled initial discovery refresh,
-поэтому уже существующие ярлыки появляются без нажатия Reload. После добавления,
-удаления, переименования или изменения ярлыков позже нажми Reload в нижних
-левых контролах sidebar.
-
-Обычный workflow:
-
-```text
-Помести .lnk/.url в shortcuts/
-Открой Games Menu
-Ярлык появится в ALL
-```
-
-Например:
-
-```text
-saou.games.menu/shortcuts/SnowRunner.url
-```
-
-создаст карточку:
-
-```text
-SnowRunner
-```
-
-Во время discovery Games Menu определяет launch identity:
-
-- `.url`: читает реальное значение `[InternetShortcut] URL=...` и нормализует его.
-- `.lnk`: читает `TargetPath`, `Arguments` и `WorkingDirectory` через Windows shortcut API.
-
-Эта launch identity получает стабильный числовой ID, который хранится здесь:
-
-```text
-saou.games.menu/state/items.json
-```
-
-State file хранит соответствие `launchKey -> numeric ID` и необязательные
-локальные данные карточек в `cardData`. Это локальное пользовательское
-состояние, оно игнорируется Git и не требует ручного редактирования.
-Переопределения не переименовывают и не изменяют ярлыки.
-
-Изображение, добавленное через редактор карточки, копируется только после
-**Сохранить / Save** в `%LOCALAPPDATA%\SAO Utils\Games Menu\custom-images`.
-В состоянии хранится путь к этой внутренней копии, а исходный файл пользователя
-не изменяется. Сброс изображения или удаление карточки может удалить только
-копию, созданную виджетом; ярлыки и внешние изображения не удаляются.
-
-Когда найден новый launch identity, Games Menu назначает следующий numeric ID и
-добавляет одну global metadata строку:
-
-```text
-item=<ID>|<CurrentShortcutBaseName>|Game Subtitle
-```
-
-Автоматически создаётся только global `item=` metadata. Games Menu не добавляет
-игры в `FAVORITES`, `RACING` или другие пользовательские папки.
-
-Literal `Game Subtitle` - это только подсказка пользователю. Она не
-отображается на карточках и не считается explicit subtitle для `syncSubtitle`.
-Замени её своим текстом, чтобы показать subtitle.
-
-Переименование ярлыка меняет title, но сохраняет тот же ID, если launch target
-остался тем же. Например, если `Zenless Zone Zero.url` и `ZZZ.url` содержат
-`URL=steam://rungameid/2513410`, существующая строка обновится:
-
-```text
-item=1|Zenless Zone Zero|ACTION RPG
-```
-
-станет:
-
-```text
-item=1|ZZZ|ACTION RPG
-```
-
-Subtitle сохраняется, а folder membership остаётся прежним:
-
-```text
-game=1
-```
-
-Если два ярлыка имеют одинаковый видимый basename, но разные launch identities,
-они получают разные numeric ID. Basename - это presentation data, а не identity
-игры.
-
-## Изображения
-
-Для собственной картинки игры положи PNG сюда:
-
-```text
-saou.games.menu/user-assets/
-```
-
-Имя PNG всё ещё совпадает с текущим basename ярлыка:
-
-```text
-shortcuts/SnowRunner.url
-user-assets/SnowRunner.png
-```
-
-После переименования `SnowRunner.url` в `My Game.url` matching artwork name:
-
-```text
-user-assets/My Game.png
-```
-
-Если PNG отсутствует или Qt не смог его загрузить, карточка использует fallback:
-
-```text
-saou.games.menu/assets/placeholder.png
-```
-
-Кэширование изображения карточки отключено, поэтому замену
-`user-assets/<CurrentShortcutBaseName>.png` можно подхватить после повторного
-открытия или нажатия Reload.
-
-## Папки
-
-`ALL` - системная папка. Она существует всегда, не хранится в `config.txt` и
-содержит все найденные `.lnk` и `.url`.
-
-Пользовательские папки задаются через numeric ID:
-
-```text
-folder=<folderId>|<displayName>|<maxColumns>
-    game=<ID>
-    game=<ID>|<FolderSubtitle>
-```
-
-`folderId` - стабильный внутренний id. Он же используется для поиска иконки
-папки. `displayName` - текст в sidebar, его можно менять без переименования
-иконки.
-`maxColumns` необязателен. Если его нет, папка использует глобальный
-`maxColumns`. `ALL` всегда использует глобальный `maxColumns`.
-
-Folder entries ссылаются на стабильный game ID. Они не хранят title, launch
-target, shortcut path или image path. Title хранится один раз в global строке
-`item=<ID>|<Title>|<GlobalSubtitle>` и наследуется всеми папками, где указан
-`game=<ID>`.
-
-Для найденных ярлыков global title синхронизируется с текущим basename ярлыка.
-Пользовательское отображаемое имя хранится отдельно в локальном
-`state/items.json`, поэтому ярлык не переименовывается.
-
-Синхронизацией subtitle управляет:
-
-```text
-syncSubtitle=true
-```
-
-При `syncSubtitle=true` одно уникальное явное непустое описание для того же ID
-наследуется между `ALL` и папками. Разные explicit subtitles считаются
-намеренным различием: папка со своим subtitle сохраняет его, папки без subtitle
-используют global `item=` subtitle если он есть, а `ALL` использует global
-subtitle или остаётся пустым.
-
-При `syncSubtitle=false` наследования нет. `ALL` использует только
-`item=<ID>|<Title>|<GlobalSubtitle>`, а каждая папка использует только своё
-`game=<ID>|<FolderSubtitle>`.
-
-## Иконки Папок
-
-Необязательные иконки папок лежат здесь:
-
-```text
-saou.games.menu/folder-icons/
-```
-
-Для:
-
-```text
-folder=racing|RACING|2
-```
-
-Games Menu ищет:
-
-```text
-folder-icons/racing.png
-```
-
-Если файла нет, пробует `folder-icons/default.png`. Если default PNG тоже нет,
-sidebar использует минимальный QML fallback.
+Перед ручной заменой папки пакета сохрани `config.local.txt`, `shortcuts/`, `state/`, `user-assets/` и `folder-icons/`.
 
 ## Настройки
 
-- `configVersion=3` - включает stable numeric ID model.
-- `item=<ID>|<Title>|<GlobalSubtitle>` - global metadata найденной игры.
-- `Game Subtitle` - placeholder для новых auto-added `item=` строк; он не
-  отображается, пока пользователь не заменит его своим текстом.
-- `folder=<folderId>|<displayName>|<maxColumns>` - объявляет пользовательскую
-  папку и может переопределить глобальный `maxColumns` только для неё.
-- `game=<ID>` - добавляет game ID в пользовательскую папку.
-- `game=<ID>|<FolderSubtitle>` - добавляет game ID с subtitle только для этой папки.
-- `syncSubtitle=true` - default; наследует одно уникальное explicit описание по ID.
-- `syncSubtitle=false` - отключает наследование subtitles между `ALL` и папками.
-- `shortcutsDir` - необязательный override внешней папки ярлыков. Оставь его
-  отсутствующим или пустым для встроенной `shortcuts/`.
-- `startHidden=true` - просит настроенное Close Action скрыть Games Menu после
-  запуска SAO Utils.
-- `maxColumns` - максимум карточек в одной строке. Фактическое число может быть
-  меньше, если виджет узкий.
-
-## Миграция v2
-
-Basename-based `configVersion=2` был экспериментальной моделью во время
-разработки v1.1.0. Текущий config v1.2.0 использует `configVersion=3`.
-
-При discovery или Reload Games Menu пытается выполнить controlled v2-to-v3
-migration только когда текущий найденный basename однозначно сопоставляется с
-одним stable ID. Например:
+`saou.games.menu/config.txt` содержит настройки пакета. Для локальных изменений, которые не должны попасть в Git, создай:
 
 ```text
-item=ULTRAKILL|FAST-PACED FPS
-folder=favorites|FAVORITES
-    game=ULTRAKILL|MY FAVORITE FPS
+saou.games.menu/config.local.txt
 ```
 
-может стать:
+Основные параметры:
 
 ```text
-item=2|ULTRAKILL|FAST-PACED FPS
-folder=favorites|FAVORITES
-    game=2|MY FAVORITE FPS
+startHidden=false
+maxColumns=3
+syncSubtitle=true
+folderIconScale=1
 ```
 
-Если v2 entry нельзя сопоставить однозначно, Games Menu не угадывает. Данные
-остаются в виде закомментированной строки `# Unmigrated v2 ...`, а в console
-пишется warning.
+`shortcutsDir` остаётся расширенной настройкой для внешней папки с ярлыками. В обычной установке лучше использовать встроенную `shortcuts/`.
 
-## Legacy Config Compatibility
+## Совместимость
 
-Старый формат v1 всё ещё парсится как путь совместимости:
+- Старые категории, поиск ярлыков и автоматический поиск изображений продолжают работать.
+- Если пользовательское изображение или исходный ярлык пропали, виджет не падает: карточка остаётся доступной для редактирования и использует безопасную заглушку.
+- Старое локальное состояние карточек сохраняется и дополняется автоматически.
 
-```text
-game=Title|Shortcut|Image|Description|Accent|Id
-```
+## Приватность и лицензии
 
-Legacy-записи показываются после найденных ярлыков. Это не основной способ
-настройки v1.2.0; для новых конфигов используй встроенную `shortcuts/` и
-`folder=`.
+Не добавляй в Git личные ярлыки, локальное состояние, изображения и конфигурации. Эти пути уже исключены через `.gitignore`.
 
-После изменения `config.txt` нажми Reload; это перечитает папки, `item=`
-metadata, shortcut discovery, автоматически созданные metadata строки, subtitle
-resolution и пользовательские изображения без перезапуска SAO Utils.
+Исходный код распространяется по MIT: [LICENSE](LICENSE). У изображений, названий игр и торговых марок действуют отдельные права; см. [ASSETS_NOTICE.md](ASSETS_NOTICE.md). Уведомления Lucide находятся в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-## Обновление
+## История версий
 
-Перед заменой файлов из нового release ZIP сохрани пользовательские данные:
-
-- `saou.games.menu/config.txt`, если ты редактировал его напрямую.
-- `saou.games.menu/config.local.txt`, если ты его создал.
-- `saou.games.menu/shortcuts/`, потому что там могут лежать личные ярлыки.
-- `saou.games.menu/state/`, потому что там лежат stable game ID mappings.
-- `saou.games.menu/user-assets/`, потому что там лежат изображения игр.
-- `saou.games.menu/folder-icons/`, потому что там лежат иконки папок.
-
-После этого замени файлы пакета из нового release ZIP и верни сохранённые
-пользовательские файлы. Полная ручная замена папки может перезаписать личные
-ярлыки, stable IDs, изображения, иконки и конфиги.
-
-## Решение Проблем
-
-### Крестик Ничего Не Делает
-
-Настрой действие закрытия:
-
-```text
-ПКМ по Games Menu -> Close Action... -> Widget / Виджет -> Hide Widget / Скрыть виджет -> Games Menu
-```
-
-### Ярлык Не Появился
-
-Проверь, что файл лежит в уже включённой папке `saou.games.menu/shortcuts/`,
-или во внешнем `shortcutsDir`, если ты его настроил. Файл должен заканчиваться
-на `.lnk` или `.url`, затем нажми Reload в нижних левых контролах sidebar.
-
-### Папка Пустая
-
-Проверь, что каждая строка `game=` внутри папки использует numeric ID из
-соответствующей строки `item=`:
-
-```text
-item=2|SnowRunner|OFF-ROAD SIMULATOR
-
-folder=racing|RACING|2
-    game=2
-```
-
-### Изображение Не Отображается
-
-Проверь, что PNG лежит в `saou.games.menu/user-assets/`, а имя файла совпадает
-с текущим basename ярлыка.
-
-### Иконка Папки Не Отображается
-
-Проверь, что PNG лежит в `saou.games.menu/folder-icons/` и назван по `folderId`,
-например `racing.png`.
-
-## Лицензия
-
-Исходный код проекта распространяется под MIT License. См. `LICENSE`.
-
-Репозиторные assets, пользовательские изображения, названия игр, торговые марки
-и интеллектуальная собственность издателей не становятся автоматически частью
-MIT-лицензии. См. `ASSETS_NOTICE.md`.
+См. [CHANGELOG.md](CHANGELOG.md).
