@@ -1,245 +1,131 @@
-[English](README.md) | [Русский](README_RU.md)
+[Русский](README_RU.md)
 
 # SAO Utils Games Menu
 
-SAO Utils Games Menu is a widget launcher for quickly starting games and
-programs through Windows `.lnk` and `.url` shortcuts.
+![Games Menu package preview](saou.games.menu/preview.png)
 
-## Features
+Games Menu is a minimalist game and application launcher widget for **SAO Utils 2** / **NERvGear** on Windows.
 
-- Customizable minimalist launcher for games and programs.
-- One menu for launching games and apps through shortcuts.
-- Automatic shortcut discovery and library updates.
-- Custom artwork and styling for game tiles.
-- Custom folders for organizing your library.
-- Custom folder icons.
-- Flexible tile layout and column settings.
-- Quick Reload for applying changes without restarting SAO Utils.
+Version **1.2.0** turns the widget into a local game library: add launchers, organise cards into folders, customise their appearance, and keep the original game files untouched.
 
-## Preview
+## Highlights
 
-![SAO Utils Games Menu Preview](assets/Preview.gif)
+- Discovers `.lnk` and `.url` files from the included `shortcuts/` folder.
+- Supports adding one `.lnk`, `.url`, or `.exe` by drag and drop in Edit Mode.
+- Gives every card a stable numeric ID based on its launch identity.
+- Lets you edit a card's display title, description, and image without renaming its source file.
+- Imports selected card images into widget-managed local storage; PNG, JPG/JPEG, and WebP are supported when the runtime can read them.
+- Includes Edit Mode with safe launch blocking, card editing, removal, restore, reordering, and moving between folders.
+- Supports custom folders, custom folder icons, and adjustable category-icon scale.
+- Keeps card order, folder membership, and user overrides after restart.
+- Uses local Lucide-based control icons. See [third-party notices](THIRD_PARTY_NOTICES.md).
 
 ## Requirements
 
-- SAO Utils 2 / NERvGear.
-- Windows.
-- Windows `.lnk` or `.url` shortcuts.
-- Windows PowerShell and Windows Script Host, included with supported Windows installations.
+- Windows with SAO Utils 2 and NERvGear API 1.x.
+- Qt 5 / Qt Quick 2.12 runtime included by SAO Utils.
+- Windows PowerShell and Windows Script Host.
 
-## Installation
+## Install
 
-1. Download the release ZIP.
-2. Extract the `Packages` folder from the ZIP into your SAO Utils 2 / NERvGear application directory.
-3. Put `.lnk` or `.url` files into the included `Packages/saou.games.menu/shortcuts/` folder.
-4. Configure the close action once:
+1. Download the release archive and extract `saou.games.menu`.
+2. Copy that folder to your SAO Utils / NERvGear packages directory.
+3. Restart SAO Utils if the package is not shown yet.
+4. Open **Games Menu**.
+5. Configure the close action once:
 
-```text
-Right-click Games Menu
--> Close Action...
--> Widget
--> Hide Widget
--> Games Menu
--> OK
-```
+   ```text
+   Right-click Games Menu
+   -> Close Action...
+   -> Widget
+   -> Hide Widget
+   -> Games Menu
+   -> OK
+   ```
 
-5. Open Games Menu.
+SAO Utils owns the widget's visibility. Use **Show Widget -> Games Menu** or **Toggle Widget -> Games Menu** to open it later.
 
-Restart SAO Utils once after installing the package if it was already running.
+## Add games
 
-## Customization
+### Shortcut folder
 
-### Game Artwork
-
-Put custom game artwork here:
+Put `.lnk` or `.url` files in:
 
 ```text
-saou.games.menu/user-assets/<ShortcutName>.png
+saou.games.menu/shortcuts/
 ```
 
-Example:
+They appear in the system **ALL** category after the initial scan or a manual Reload.
 
-```text
-shortcuts/SnowRunner.url
-user-assets/SnowRunner.png
-```
+### Drag and drop
 
-The PNG name must match the shortcut name without `.lnk` or `.url`.
+1. Enable **Edit Mode** with the pencil button in the sidebar.
+2. Drop one `.lnk`, `.url`, or `.exe` onto the widget.
+3. Review the new-card editor and press **Add**.
 
-Recommended: `1200 × 900 px`, aspect ratio `4:3`, PNG.
+The original launcher or executable is never renamed, moved, or modified. The widget keeps its own launch reference; managed copies are used where needed to keep launcher cards available.
 
-### Folder Icons
+## Edit cards and folders
 
-Put custom folder icons here:
+Edit Mode prevents accidental launches. It provides these actions:
 
-```text
-saou.games.menu/folder-icons/<folderId>.png
-```
+- Edit a card's display name, description, and image.
+- Reset only a custom title or image to return to automatic discovery.
+- Reorder cards inside a category with the grip button.
+- Drag a card onto another category to move it. When it is already present there, the widget asks whether to copy or move it.
+- Hide a card from the launcher and restore it later through **Settings -> Restore**.
+- Create, edit, or remove custom categories.
+- Assign a custom category image by path or image drop.
+- Adjust **Category Icon Scale** in Widget Settings.
 
-The system `ALL` folder can use:
+The **ALL** category is system-owned and cannot be removed.
 
-```text
-saou.games.menu/folder-icons/all.png
-```
+## User data and files
 
-The PNG name must match the folder ID. For example, `folder=racing|RACING`
-uses `folder-icons/racing.png`.
+Games Menu keeps user state locally and does not write metadata into game files.
 
-Recommended: `512 × 512 px`, transparent PNG. The icon should fill most of the
-canvas without large empty margins.
+| Data | Location | Notes |
+| --- | --- | --- |
+| Stable IDs and card state | `saou.games.menu/state/items.json` | Generated local state; ignored by Git. |
+| User shortcuts | `saou.games.menu/shortcuts/` | Included folder for normal discovery; contents are ignored by Git. |
+| Legacy automatic artwork | `saou.games.menu/user-assets/` | Optional basename-based artwork; ignored by Git. |
+| Folder images | `saou.games.menu/folder-icons/` | User-provided assets; ignored by Git. |
+| Imported card images | `%LOCALAPPDATA%\SAO Utils\Games Menu\custom-images` | Managed copies; the original image is not changed. |
+| Imported launchers | `%LOCALAPPDATA%\SAO Utils\Games Menu\managed-shortcuts` | Managed copies when the launcher must survive source removal. |
 
-If an old folder icon is still shown after replacing a PNG, restart SAO Utils.
-
-### Folders
-
-Folders are configured in `config.txt` with game IDs:
-
-```text
-item=2|SnowRunner|OFF-ROAD SIMULATOR
-
-folder=racing|RACING|2
-    game=2
-```
-
-Games Menu assigns IDs automatically when it discovers shortcuts. Folder hints
-like `# IN: RACING` are generated automatically and are only comments.
+Before manually replacing the package folder, keep your `config.local.txt`, `shortcuts/`, `state/`, `user-assets/`, and `folder-icons/` folders.
 
 ## Configuration
 
-Edit:
+`saou.games.menu/config.txt` contains package defaults. For local changes that must not be committed, create:
 
 ```text
-saou.games.menu/config.txt
+saou.games.menu/config.local.txt
 ```
 
-Small example:
+Common options:
 
 ```text
-configVersion=3
 startHidden=false
-closeOnLaunch=true
 maxColumns=3
-
-item=1|L4D2|Left 4 Dead 2           # IN: FAVORITES, SHOOTER
-item=2|Muse Dash|RHYTHM GAME        # IN: FAVORITES
-
-folder=favorites|FAVORITES|4
-    game=1
-    game=2
-
-folder=shooter|SHOOTER|3
-    game=1
-
-# Optional external shortcut folder:
-# shortcutsDir=C:\Games\Shortcuts
+syncSubtitle=true
+folderIconScale=1
 ```
 
-User-facing parameters:
+`shortcutsDir` remains available as an advanced override for an external shortcut directory. Most installations should use the included `shortcuts/` folder instead.
 
-- `startHidden=true|false` - hide or show Games Menu when SAO Utils starts.
-- `closeOnLaunch=true|false` - close Games Menu after launching a game, or keep it open.
-- `maxColumns=<number>` - global maximum number of card columns.
-- `item=<ID>|<Game Name>|<Game Subtitle>` - game title and subtitle.
-- `folder=<folderId>|<DisplayName>|<MaxColumns>` - custom folder and optional column limit.
-- `game=<ID>` - add a game to the current folder.
-- `shortcutsDir=<path>` - optional advanced override for the shortcut folder.
+## Compatibility
 
-Leave `shortcutsDir` absent or empty for the included `saou.games.menu/shortcuts/`
-folder.
+- Existing folders, shortcut discovery, and automatic artwork lookup continue to work.
+- Missing custom images or missing source launchers do not crash the widget; the card falls back safely and remains editable.
+- Older local card state is preserved and extended automatically.
 
-`# IN:` comments are generated by Games Menu. They show which folders contain a
-game and can be safely ignored.
+## Privacy and licensing
 
-## Updating
+Do not commit personal shortcuts, local state, custom images, or configuration files. The repository ignores those paths by default.
 
-Before manually replacing the package folder, save your user data:
+Source code is MIT-licensed; see [LICENSE](LICENSE). User artwork, game names, trademarks, and repository image assets have separate rights and notices in [ASSETS_NOTICE.md](ASSETS_NOTICE.md). Lucide notices are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
-- `saou.games.menu/config.txt`
-- `saou.games.menu/config.local.txt`, if you created it
-- `saou.games.menu/shortcuts/`
-- `saou.games.menu/state/`
-- `saou.games.menu/user-assets/`
-- `saou.games.menu/folder-icons/`
+## Release notes
 
-Then replace the package files and put your saved user files back.
-
-## Troubleshooting
-
-### The Close Button Does Nothing
-
-Configure:
-
-```text
-Close Action... -> Widget -> Hide Widget -> Games Menu
-```
-
-Games Menu must close through the configured SAO Utils action.
-
-### A Shortcut Does Not Appear
-
-Check that the `.lnk` or `.url` file is in `saou.games.menu/shortcuts/`, then
-press Reload in the lower-left sidebar controls.
-
-### A Game Image Does Not Appear
-
-Check that the PNG is in `saou.games.menu/user-assets/` and that its file name
-matches the shortcut name without `.lnk` or `.url`.
-
-### A Folder Icon Does Not Appear
-
-Check that the PNG is in `saou.games.menu/folder-icons/` and that it is named
-after the folder ID, for example `racing.png`. For `ALL`, use `all.png`.
-
-If you replaced an existing icon and SAO Utils still shows the old image,
-restart SAO Utils.
-
-### Config Changes Do Not Show Up
-
-Press Reload in Games Menu. For folder icon image replacement, restart SAO Utils
-if the old icon is still cached.
-
-## Additional
-
-### Package Structure
-
-Normal release ZIP structure:
-
-```text
-saou.games.menu/
-|-- assets/
-|-- folder-icons/
-|-- qml/
-|-- runtime/
-|-- shortcuts/
-|-- state/
-|-- tools/
-|-- user-assets/
-|-- config.txt
-|-- module.qml
-`-- package.json
-```
-
-The `shortcuts/`, `user-assets/`, `folder-icons/`, and `state/` folders are part
-of the package so users do not need to create them manually.
-
-### Stable Game IDs
-
-Games Menu gives every discovered shortcut a stable numeric ID. The ID is based
-on the shortcut launch target, not just the visible file name. This keeps folder
-membership stable when a shortcut is renamed.
-
-Local ID state is stored in:
-
-```text
-saou.games.menu/state/items.json
-```
-
-### Technical Discovery Notes
-
-Shortcut discovery uses bundled helper scripts from `saou.games.menu/tools/`.
-PowerShell is launched through the included VBS wrapper so the helper can run
-hidden. Discovery writes package-local runtime files under `runtime/`.
-
-## License
-
-MIT. See [LICENSE](LICENSE).
+See [CHANGELOG.md](CHANGELOG.md) for version history.

@@ -7,24 +7,36 @@ Item {
 
     property string shortcutsDir: ""
     property var items: []
+    property var cardData: ({})
+    property var folderOverrides: ({})
     property url defaultFolderUrl: Qt.resolvedUrl("../shortcuts")
+    property url packageRootUrl: Qt.resolvedUrl("..")
     property url helperScriptUrl: Qt.resolvedUrl("../tools/discover-shortcuts.ps1")
     property url updateScriptUrl: Qt.resolvedUrl("../tools/update-config-items.ps1")
     property url hiddenLauncherUrl: Qt.resolvedUrl("../tools/run-hidden.vbs")
     property url outputFileUrl: Qt.resolvedUrl("../runtime/discovery.json")
     property url updateOutputFileUrl: Qt.resolvedUrl("../runtime/config-update.json")
+    property url cardDataOutputFileUrl: Qt.resolvedUrl("../runtime/card-data-update.json")
     property url configFileUrl: Qt.resolvedUrl("../config.txt")
     property url stateFileUrl: Qt.resolvedUrl("../state/items.json")
     property string effectiveShortcutPath: effectiveShortcutDirectoryPath()
     property bool refreshing: false
+    property bool cardDataUpdating: false
     property int refreshSerial: 0
     property int activeRequestId: 0
     property int readAttempts: 0
+    property int cardDataReadAttempts: 0
     property int maxReadAttempts: 12
+    property int cardDataUpdateSerial: 0
+    property int activeCardDataRequestId: 0
+    property string activeCardDataCardId: ""
     property var lastDiscoveryResult: null
     property string refreshPhase: ""
 
     signal refreshSucceeded(var result)
+    signal cardDataUpdated(string cardId, var data)
+    signal cardDataUpdateFinished(string cardId, bool success, string error)
+    signal manualCardPrepared(var draft, string error)
 
     function fileUrlToPath(url) {
         var value = String(url || "")
@@ -70,6 +82,180 @@ Item {
             result.push(quoteArgument(values[i]))
 
         return result.join(" ")
+    }
+
+    function hasOwn(object, name) {
+        return object && Object.prototype.hasOwnProperty.call(object, name)
+    }
+
+    function normalizeCardId(cardId) {
+        return ConfigLoader.normalizeString(cardId, "")
+    }
+
+    function normalizeFolderOrderKey(folderId) {
+        return ConfigLoader.normalizeString(folderId, "").toLowerCase()
+    }
+
+    function normalizeAdditionalFolderIds(source) {
+        var result = []
+        var seen = {}
+
+        if (typeof source === "string")
+            source = [source]
+
+        for (var i = 0; source && i < source.length; ++i) {
+            var folderId = normalizeFolderOrderKey(source[i])
+            if (folderId && folderId !== "all" && !seen[folderId]) {
+                seen[folderId] = true
+                result.push(folderId)
+            }
+        }
+
+        return result
+    }
+
+    function normalizeFolderOrders(source) {
+        var result = {}
+
+        if (!source || typeof source !== "object")
+            return result
+
+        for (var key in source) {
+            if (!hasOwn(source, key))
+                continue
+
+            var normalizedKey = normalizeFolderOrderKey(key)
+            var order = parseInt(source[key], 10)
+
+            if (normalizedKey && !isNaN(order) && order >= 0)
+                result[normalizedKey] = order
+        }
+
+        return result
+    }
+
+    function normalizeCardData(source) {
+        var result = {
+            customTitle: "",
+            description: "",
+            customImage: "",
+            folderId: "",
+            additionalFolderIds: [],
+            excludedFolderIds: [],
+            order: 0,
+            hasOrder: false,
+            folderOrders: {},
+            isHidden: false,
+            sourcePath: "",
+            targetPath: "",
+            launchPath: "",
+            sourceType: "",
+            automaticTitle: ""
+        }
+
+        if (!source || typeof source !== "object")
+            return result
+
+        result.customTitle = ConfigLoader.normalizeString(source.customTitle, "")
+        result.description = ConfigLoader.normalizeString(source.description, "")
+        result.customImage = ConfigLoader.normalizeString(source.customImage, "")
+        result.folderId = ConfigLoader.normalizeString(source.folderId, "")
+        result.additionalFolderIds = normalizeAdditionalFolderIds(source.additionalFolderIds)
+        result.excludedFolderIds = normalizeAdditionalFolderIds(source.excludedFolderIds)
+        result.folderOrders = normalizeFolderOrders(source.folderOrders)
+        result.isHidden = source.isHidden === true || String(source.isHidden || "").toLowerCase() === "true"
+        result.sourcePath = ConfigLoader.normalizeString(source.sourcePath, "")
+        result.targetPath = ConfigLoader.normalizeString(source.targetPath, "")
+        result.launchPath = ConfigLoader.normalizeString(source.launchPath, "")
+        result.sourceType = ConfigLoader.lookupKey(source.sourceType)
+        result.automaticTitle = ConfigLoader.normalizeString(source.automaticTitle, "")
+
+        if (hasOwn(source, "order")) {
+            var order = parseInt(source.order, 10)
+
+            if (!isNaN(order) && order >= 0) {
+                result.order = order
+                result.hasOrder = true
+            }
+        }
+
+        return result
+    }
+
+    function normalizedCardDataForStore(source) {
+        var normalized = normalizeCardData(source)
+        var result = {}
+
+        if (normalized.customTitle)
+            result.customTitle = normalized.customTitle
+
+        if (normalized.description)
+            result.description = normalized.description
+
+        if (normalized.customImage)
+            result.customImage = normalized.customImage
+
+        if (normalized.folderId)
+            result.folderId = normalized.folderId
+
+        if (normalized.additionalFolderIds.length)
+            result.additionalFolderIds = normalized.additionalFolderIds
+
+        if (normalized.excludedFolderIds.length)
+            result.excludedFolderIds = normalized.excludedFolderIds
+
+        if (normalized.hasOrder)
+            result.order = normalized.order
+
+        var hasFolderOrders = false
+        var folderOrders = normalizeFolderOrders(source && source.folderOrders)
+        for (var folderId in folderOrders) {
+            if (hasOwn(folderOrders, folderId)) {
+                if (!hasFolderOrders) {
+                    result.folderOrders = {}
+                    hasFolderOrders = true
+                }
+                result.folderOrders[folderId] = folderOrders[folderId]
+            }
+        }
+
+        if (normalized.isHidden)
+            result.isHidden = true
+
+        for (var manualFieldIndex = 0; manualFieldIndex < ["sourcePath", "targetPath", "launchPath", "sourceType", "automaticTitle"].length; ++manualFieldIndex) {
+            var manualField = ["sourcePath", "targetPath", "launchPath", "sourceType", "automaticTitle"][manualFieldIndex]
+            var manualValue = ConfigLoader.normalizeString(source && source[manualField], "")
+
+            if (manualValue)
+                result[manualField] = manualValue
+        }
+
+        var customImageSource = ConfigLoader.normalizeString(source && source.customImageSource, "")
+
+        if (customImageSource)
+            result.customImageSource = customImageSource
+
+        return result
+    }
+
+    function getCardUserData(cardId) {
+        var key = normalizeCardId(cardId)
+        var result = normalizeCardData(key && cardData ? cardData[key] : null)
+
+        result.cardId = key
+        return result
+    }
+
+    function applyCardData(source) {
+        cardData = source && typeof source === "object" ? source : ({})
+
+        // Reassign so dependent QML bindings refresh after an editor save.
+        if (items && typeof items.length === "number")
+            items = items.slice(0)
+    }
+
+    function applyFolderOverrides(source) {
+        folderOverrides = source && typeof source === "object" ? source : ({})
     }
 
     function encodedDiscoveryItems(items) {
@@ -289,6 +475,18 @@ Item {
         return data
     }
 
+    function readCardDataUpdateFile() {
+        var data = readJsonFile(cardDataOutputFileUrl)
+
+        if (!data)
+            return null
+
+        if (data.requestId !== activeCardDataRequestId)
+            return null
+
+        return data
+    }
+
     function finishRefresh(result) {
         readResultDelay.stop()
         configUpdateDelay.stop()
@@ -297,6 +495,17 @@ Item {
 
         if (result)
             refreshSucceeded(result)
+    }
+
+    function finishCardDataUpdate(cardId, data, error) {
+        cardDataUpdateDelay.stop()
+        cardDataUpdating = false
+
+        if (data)
+            cardDataUpdated(cardId, getCardUserData(cardId))
+
+        cardDataUpdateFinished(cardId, !!data, error || "")
+        activeCardDataCardId = ""
     }
 
     function tryReadDiscoveryOutput() {
@@ -326,6 +535,10 @@ Item {
             if (data.configUpdateError)
                 console.log("Games Menu config item update failed: " + data.configUpdateError)
 
+            if (data.cardData !== undefined && data.cardData !== null)
+                applyCardData(data.cardData)
+            if (data.folderOverrides !== undefined && data.folderOverrides !== null)
+                applyFolderOverrides(data.folderOverrides)
             items = normalizeDiscoveredItems(lastDiscoveryResult && lastDiscoveryResult.items, data.items)
             finishRefresh(data)
             return
@@ -346,17 +559,6 @@ Item {
 
     function startConfigUpdate(discoveryResult) {
         var encodedItems = encodedDiscoveryItems(discoveryResult && discoveryResult.items)
-
-        if (!encodedItems) {
-            items = []
-            finishRefresh({
-                requestId: activeRequestId,
-                configChanged: false,
-                configAddedItems: [],
-                configUpdateError: ""
-            })
-            return
-        }
 
         refreshPhase = "config"
         readAttempts = 0
@@ -404,9 +606,160 @@ Item {
         configUpdateDelay.restart()
     }
 
+    function startCardDataUpdate(operation, cardId, data) {
+        if (refreshing || cardDataUpdating) {
+            console.log("Games Menu card data update is already blocked by another operation")
+            return false
+        }
+
+        var key = normalizeCardId(cardId)
+
+        if (!key) {
+            console.log("Games Menu card data update skipped: missing card ID")
+            return false
+        }
+
+        cardDataUpdating = true
+        cardDataUpdateSerial += 1
+        activeCardDataRequestId = cardDataUpdateSerial
+        activeCardDataCardId = key
+        cardDataReadAttempts = 0
+
+        var encodedCardData = ""
+        if (operation !== "remove-card-data") {
+            var dataForStore = operation === "update-card-orders" || operation === "move-card" || operation === "copy-card-to-folder"
+                    || operation === "update-folder-overrides" || operation === "save-widget-settings" || operation === "create-folder" || operation === "remove-folder" ? data : normalizedCardDataForStore(data)
+            encodedCardData = encodeURIComponent(JSON.stringify(dataForStore))
+        }
+
+        var hiddenLauncher = "C:\\Windows\\System32\\wscript.exe"
+        var powerShell = "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+        var args = quotedArguments([
+            fileUrlToPath(hiddenLauncherUrl),
+            powerShell,
+            "-NoLogo",
+            "-NoProfile",
+            "-NonInteractive",
+            "-WindowStyle",
+            "Hidden",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-File",
+            fileUrlToPath(updateScriptUrl),
+            "-ConfigPath",
+            fileUrlToPath(configFileUrl),
+            "-StatePath",
+            fileUrlToPath(stateFileUrl),
+            "-UpdateOutputPath",
+            fileUrlToPath(cardDataOutputFileUrl),
+            "-UpdateRequestId",
+            "" + activeCardDataRequestId,
+            "-Operation",
+            operation,
+            "-CardId",
+            key,
+            "-CardDataEncoded",
+            encodedCardData
+        ])
+
+        try {
+            NVG.SystemCall.execute(hiddenLauncher, args)
+        } catch (error) {
+            console.log("Games Menu card data update launch failed: " + error)
+            finishCardDataUpdate(key, null, "" + error)
+            return false
+        }
+
+        cardDataUpdateDelay.restart()
+        return true
+    }
+
+    function updateCardUserData(cardId, data) {
+        return startCardDataUpdate("update-card-data", cardId, data)
+    }
+
+    function removeCardUserOverride(cardId) {
+        return startCardDataUpdate("remove-card-data", cardId, null)
+    }
+
+    function prepareManualCard(data) {
+        return startCardDataUpdate("prepare-manual-card", "draft", data)
+    }
+
+    function createManualCard(cardId, data) {
+        return startCardDataUpdate("create-manual-card", cardId, data)
+    }
+
+    function updateCardOrders(data) {
+        return startCardDataUpdate("update-card-orders", "orders", data)
+    }
+
+    function moveCard(cardId, data) {
+        return startCardDataUpdate("move-card", cardId, data)
+    }
+
+    function copyCardToFolder(cardId, data) {
+        return startCardDataUpdate("copy-card-to-folder", cardId, data)
+    }
+
+    function updateFolderOverrides(data) {
+        return startCardDataUpdate("update-folder-overrides", "folders", data)
+    }
+
+    function saveWidgetSettings(data) {
+        return startCardDataUpdate("save-widget-settings", "settings", data)
+    }
+
+    function createFolder(data) {
+        return startCardDataUpdate("create-folder", "folder", data)
+    }
+
+    function removeFolder(folderId) {
+        return startCardDataUpdate("remove-folder", "folder", { folderId: folderId })
+    }
+
+    function tryReadCardDataUpdate() {
+        var data = readCardDataUpdateFile()
+
+        if (data) {
+            if (data.operation === "prepare-manual-card") {
+                cardDataUpdateDelay.stop()
+                cardDataUpdating = false
+                activeCardDataCardId = ""
+                manualCardPrepared(data.manualCardDraft || null, data.cardDataUpdateError || "")
+                return
+            }
+
+            if (data.cardDataUpdateError)
+                console.log("Games Menu card data update failed: " + data.cardDataUpdateError)
+            else {
+                applyCardData(data.cardData)
+                if (data.folderOverrides !== undefined && data.folderOverrides !== null)
+                    applyFolderOverrides(data.folderOverrides)
+            }
+
+            finishCardDataUpdate(normalizeCardId(data.cardId), data.cardDataUpdateError ? null : data, data.cardDataUpdateError || "")
+            return
+        }
+
+        cardDataReadAttempts += 1
+
+        if (cardDataReadAttempts >= maxReadAttempts) {
+            console.log("Games Menu card data update result was not ready")
+            if (activeCardDataCardId === "draft") {
+                cardDataUpdateDelay.stop()
+                cardDataUpdating = false
+                activeCardDataCardId = ""
+                manualCardPrepared(null, "Could not prepare new card")
+                return
+            }
+            finishCardDataUpdate(activeCardDataCardId, null, "Card data update timeout")
+        }
+    }
+
     function refresh() {
-        if (refreshing) {
-            console.log("Games Menu discovery refresh is already running")
+        if (refreshing || cardDataUpdating) {
+            console.log("Games Menu discovery refresh is already blocked by another operation")
             return false
         }
 
@@ -479,5 +832,23 @@ Item {
         interval: 250
         repeat: true
         onTriggered: discovery.tryReadConfigUpdate()
+    }
+
+    function openPackageFolder() {
+        var explorer = "C:\\Windows\\explorer.exe"
+
+        try {
+            NVG.SystemCall.execute(explorer, quoteArgument(fileUrlToPath(packageRootUrl)))
+        } catch (error) {
+            console.log("Games Menu package folder open failed: " + error)
+        }
+    }
+
+    Timer {
+        id: cardDataUpdateDelay
+
+        interval: 250
+        repeat: true
+        onTriggered: discovery.tryReadCardDataUpdate()
     }
 }
