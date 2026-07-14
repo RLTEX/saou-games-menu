@@ -102,6 +102,11 @@ T.Widget {
     property string folderEditorError: ""
     property bool folderEditorIconDropActive: false
     property bool folderCreating: false
+    property bool folderRemovalConfirmOpen: false
+    property bool folderRemovalSaving: false
+    property string folderRemovalFolderId: ""
+    property string folderRemovalTitle: ""
+    property string folderRemovalError: ""
     property bool recoveryOpen: false
     property bool folderCreateOpen: false
     property string folderCreateError: ""
@@ -121,6 +126,7 @@ T.Widget {
     onEditModeChanged: {
         if (!editMode) {
             cancelCardReorder()
+            cancelFolderRemoval()
             fileDropActive = false
             fileDropStatus = ""
         }
@@ -340,6 +346,43 @@ T.Widget {
         }
     }
 
+    function requestFolderRemoval(folderId) {
+        var folder = findConfiguredFolder(folderId)
+
+        if (!editMode || !folder || folderRemovalConfirmOpen || folderRemovalSaving || folderEditorOpen)
+            return
+
+        folderRemovalFolderId = folder.id
+        folderRemovalTitle = folderOverrideFor(folder.id).customTitle || folder.displayName
+        folderRemovalError = ""
+        folderRemovalConfirmOpen = true
+    }
+
+    function cancelFolderRemoval() {
+        if (folderRemovalSaving)
+            return
+
+        folderRemovalConfirmOpen = false
+        folderRemovalFolderId = ""
+        folderRemovalTitle = ""
+        folderRemovalError = ""
+    }
+
+    function confirmFolderRemoval() {
+        if (!folderRemovalConfirmOpen || folderRemovalSaving || !folderRemovalFolderId)
+            return
+
+        folderRemovalSaving = true
+        folderRemovalError = ""
+        cardDataAction = "remove-folder"
+
+        if (!shortcutDiscovery.removeFolder(folderRemovalFolderId)) {
+            folderRemovalSaving = false
+            cardDataAction = ""
+            folderRemovalError = "REMOVE IS TEMPORARILY UNAVAILABLE"
+        }
+    }
+
     function saveFolderEditor() {
         if (folderCreating) {
             createFolder(folderEditorTitleField.text)
@@ -392,7 +435,7 @@ T.Widget {
     }
 
     function toggleEditMode() {
-        if (closing || launching || cardEditorOpen || cardRemovalConfirmOpen || cardMoveChoiceOpen)
+        if (closing || launching || cardEditorOpen || cardRemovalConfirmOpen || folderRemovalConfirmOpen || cardMoveChoiceOpen)
             return
 
         if (editMode)
@@ -721,6 +764,22 @@ T.Widget {
                 reloadConfig()
             } else {
                 folderEditorError = error || "CREATE FAILED"
+            }
+            return
+        }
+
+        if (cardDataAction === "remove-folder" && String(cardId) === "folder") {
+            folderRemovalSaving = false
+            cardDataAction = ""
+            if (success) {
+                selectedFolderId = "all"
+                folderRemovalConfirmOpen = false
+                folderRemovalFolderId = ""
+                folderRemovalTitle = ""
+                folderRemovalError = ""
+                reloadConfig()
+            } else {
+                folderRemovalError = error || "REMOVE FAILED"
             }
             return
         }
@@ -1831,7 +1890,7 @@ T.Widget {
     }
 
     function launchShortcut(game) {
-        if (editMode || cardEditorOpen || cardRemovalConfirmOpen || cardMoveChoiceOpen || closing || launching)
+        if (editMode || cardEditorOpen || cardRemovalConfirmOpen || folderRemovalConfirmOpen || cardMoveChoiceOpen || closing || launching)
             return
 
         var displayName = game && game.title ? game.title : "GAME"
@@ -2135,6 +2194,7 @@ T.Widget {
                 onOpenShortcutsRequested: widget.requestOpenShortcutsFolder()
                 onSettingsRequested: widget.openSettings()
                 onFolderEditRequested: widget.openFolderEditor(folderId)
+                onFolderRemoveRequested: widget.requestFolderRemoval(folderId)
                 onFolderCreateRequested: widget.openFolderCreate()
                 onReloadRequested: widget.requestManualReload()
                 onEditModeRequested: widget.toggleEditMode()
@@ -2332,7 +2392,7 @@ T.Widget {
 
             anchors.fill: parent
             z: 6
-            enabled: !widget.cardEditorOpen && !widget.folderEditorOpen && !widget.cardRemovalConfirmOpen && !widget.cardMoveChoiceOpen && !widget.cardEditorSaving
+            enabled: !widget.cardEditorOpen && !widget.folderEditorOpen && !widget.cardRemovalConfirmOpen && !widget.folderRemovalConfirmOpen && !widget.cardMoveChoiceOpen && !widget.cardEditorSaving
 
             onEntered: {
                 if (drag.hasUrls) {
@@ -3557,6 +3617,118 @@ T.Widget {
                     }
 
                     widget.chooseFolderEditorIcon(String(drop.urls[0]))
+                }
+            }
+        }
+
+        Item {
+            id: folderRemovalOverlay
+
+            anchors.fill: parent
+            visible: widget.folderRemovalConfirmOpen
+            focus: visible
+            z: 18
+
+            Keys.onEscapePressed: {
+                widget.cancelFolderRemoval()
+                event.accepted = true
+            }
+
+            Rectangle { anchors.fill: parent; color: "#B7141A24" }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: !widget.folderRemovalSaving
+                onClicked: widget.cancelFolderRemoval()
+            }
+
+            Rectangle {
+                anchors.centerIn: parent
+                width: Math.min(parent.width - 56, 440)
+                height: 202
+                radius: 10
+                color: "#F01A222E"
+                border.width: 1
+                border.color: "#FFFFB4B4"
+
+                MouseArea { anchors.fill: parent; onClicked: {} }
+
+                Text {
+                    x: 18
+                    y: 18
+                    text: "REMOVE FOLDER"
+                    color: "#FFFFD3D3"
+                    font.pixelSize: 11
+                    font.bold: true
+                    font.letterSpacing: 1.3
+                }
+
+                Text {
+                    x: 18
+                    y: 56
+                    width: parent.width - 36
+                    text: "Remove \"" + widget.folderRemovalTitle + "\"?"
+                    color: "#F4FFFFFF"
+                    font.pixelSize: 14
+                    font.bold: true
+                    elide: Text.ElideRight
+                }
+
+                Text {
+                    x: 18
+                    y: 91
+                    width: parent.width - 36
+                    text: "Cards stay in the launcher and return to ALL. Shortcut files and game files are not changed."
+                    color: "#B9D1E1ED"
+                    font.pixelSize: 9
+                    wrapMode: Text.Wrap
+                }
+
+                Text {
+                    x: 18
+                    y: 133
+                    width: parent.width - 160
+                    text: widget.folderRemovalError
+                    color: "#FFFFB4B4"
+                    font.pixelSize: 8
+                    elide: Text.ElideRight
+                }
+
+                Rectangle {
+                    anchors.right: folderRemovalCancelButton.left
+                    anchors.rightMargin: 8
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 14
+                    width: 112
+                    height: 29
+                    radius: 4
+                    color: folderRemovalConfirmMouse.containsMouse ? "#B9444444" : "#823C2A2A"
+                    border.width: 1
+                    border.color: "#FFFFB4B4"
+                    opacity: widget.folderRemovalSaving ? 0.65 : 1
+                    Text { anchors.centerIn: parent; text: widget.folderRemovalSaving ? "REMOVING" : "REMOVE"; color: "#FFFFFFFF"; font.pixelSize: 8; font.bold: true }
+                    MouseArea {
+                        id: folderRemovalConfirmMouse
+                        anchors.fill: parent
+                        hoverEnabled: true
+                        cursorShape: Qt.PointingHandCursor
+                        enabled: !widget.folderRemovalSaving
+                        onClicked: widget.confirmFolderRemoval()
+                    }
+                }
+
+                Rectangle {
+                    id: folderRemovalCancelButton
+                    anchors.right: parent.right
+                    anchors.rightMargin: 14
+                    anchors.bottom: parent.bottom
+                    anchors.bottomMargin: 14
+                    width: 82
+                    height: 29
+                    radius: 4
+                    color: "#101A2733"
+                    Text { anchors.centerIn: parent; text: "CANCEL"; color: "#DDECF7FF"; font.pixelSize: 8; font.bold: true }
+                    MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !widget.folderRemovalSaving; onClicked: widget.cancelFolderRemoval() }
                 }
             }
         }
