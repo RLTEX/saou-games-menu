@@ -5,6 +5,8 @@ configVersion=3
 startHidden=false
 maxColumns=3
 syncSubtitle=true
+# Category icon scale: 0.80 to 2.00. Saved from Widget Settings.
+folderIconScale=1
 
 # Games Menu scans the included shortcuts/ directory by default.
 # Put .lnk and .url files there; every discovered shortcut appears in ALL.

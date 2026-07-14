@@ -845,9 +845,13 @@ function Save-WidgetSettings {
     if ($startHidden -notin @("true", "false") -or $syncSubtitle -notin @("true", "false")) { throw "Boolean setting is invalid" }
     $maxColumns = 0
     if (-not [int]::TryParse([string] (Get-ObjectPropertyValue -Object $Settings -Name "maxColumns"), [ref] $maxColumns) -or $maxColumns -lt 1 -or $maxColumns -gt 8) { throw "Max columns must be between 1 and 8" }
+    $folderIconScale = 0.0
+    $scaleText = [string] (Get-ObjectPropertyValue -Object $Settings -Name "folderIconScale")
+    if (-not [double]::TryParse($scaleText, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref] $folderIconScale) -or $folderIconScale -lt 0.8 -or $folderIconScale -gt 2) { throw "Folder icon scale must be between 0.8 and 2" }
+    $folderIconScaleText = $folderIconScale.ToString("0.##", [System.Globalization.CultureInfo]::InvariantCulture)
 
     $lines = if (Test-Path -LiteralPath $Path -PathType Leaf) { @(Get-Content -LiteralPath $Path -Encoding UTF8) } else { @() }
-    $updates = @{ starthidden = "startHidden=$startHidden"; maxcolumns = "maxColumns=$maxColumns"; syncsubtitle = "syncSubtitle=$syncSubtitle" }
+    $updates = @{ starthidden = "startHidden=$startHidden"; maxcolumns = "maxColumns=$maxColumns"; syncsubtitle = "syncSubtitle=$syncSubtitle"; foldericonscale = "folderIconScale=$folderIconScaleText" }
     $seen = @{}
     $result = New-Object "System.Collections.Generic.List[string]"
     foreach ($line in $lines) {
@@ -857,7 +861,7 @@ function Save-WidgetSettings {
             $result.Add($updates[$key]); $seen[$key] = $true
         } else { $result.Add($line) }
     }
-    foreach ($key in @("starthidden", "maxcolumns", "syncsubtitle")) { if (-not $seen.ContainsKey($key)) { $result.Add($updates[$key]) } }
+    foreach ($key in @("starthidden", "maxcolumns", "syncsubtitle", "foldericonscale")) { if (-not $seen.ContainsKey($key)) { $result.Add($updates[$key]) } }
     $directory = [System.IO.Path]::GetDirectoryName($Path)
     if ($directory -and -not (Test-Path -LiteralPath $directory -PathType Container)) { New-Item -ItemType Directory -Path $directory -Force | Out-Null }
     $temporary = $Path + ".tmp"

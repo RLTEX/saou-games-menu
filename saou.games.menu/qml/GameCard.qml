@@ -243,12 +243,12 @@ Rectangle {
         border.width: editMouse.containsMouse ? 1 : 0
         border.color: "#99FFFFFF"
 
-        Text {
+        LucideIcon {
             anchors.centerIn: parent
-            text: "\u270e"
-            color: "#FFFFFFFF"
-            font.pixelSize: 17
-            font.bold: true
+            width: 17
+            height: 17
+            name: "pencil"
+            opacity: editMouse.containsMouse ? 1 : 0.8
         }
 
         MouseArea {
@@ -278,22 +278,12 @@ Rectangle {
         border.width: reorderMouse.containsMouse ? 1 : 0
         border.color: "#99FFFFFF"
 
-        Item {
+        LucideIcon {
             anchors.centerIn: parent
-            width: 13
-            height: 12
-
-            Repeater {
-                model: 3
-
-                Rectangle {
-                    width: 13
-                    height: 1.5
-                    radius: 1
-                    y: index * 5
-                    color: "#FFFFFFFF"
-                }
-            }
+            width: 16
+            height: 16
+            name: "grip-vertical"
+            opacity: reorderMouse.containsMouse ? 1 : 0.8
         }
 
         MouseArea {
@@ -356,39 +346,12 @@ Rectangle {
         border.width: removeMouse.containsMouse ? 1 : 0
         border.color: removeMouse.containsMouse ? "#FFFFB4B4" : "#99FFFFFF"
 
-        Item {
+        LucideIcon {
             anchors.centerIn: parent
             width: 16
             height: 16
-
-            Rectangle {
-                x: 4
-                y: 5
-                width: 8
-                height: 9
-                radius: 1
-                color: "transparent"
-                border.width: 1.4
-                border.color: "#FFFFFFFF"
-            }
-
-            Rectangle {
-                x: 3
-                y: 3
-                width: 10
-                height: 1.5
-                radius: 1
-                color: "#FFFFFFFF"
-            }
-
-            Rectangle {
-                x: 6
-                y: 1
-                width: 4
-                height: 1.5
-                radius: 1
-                color: "#FFFFFFFF"
-            }
+            name: "trash-2"
+            opacity: removeMouse.containsMouse ? 1 : 0.8
         }
 
         MouseArea {

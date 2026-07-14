@@ -30,6 +30,7 @@ T.Widget {
     property bool startHidden: appConfig.startHidden
     property int maxColumns: appConfig.maxColumns
     property bool syncSubtitle: appConfig.syncSubtitle
+    property real folderIconScale: appConfig.folderIconScale
     property var configuredFolders: appConfig.folders
     property var folderOverrides: shortcutDiscovery.folderOverrides
     property var subtitleModel: appConfig.subtitleModel
@@ -97,6 +98,7 @@ T.Widget {
     property string settingsError: ""
     property bool settingsStartHiddenDraft: false
     property bool settingsSyncSubtitleDraft: true
+    property real settingsFolderIconScaleDraft: 1
     property bool folderEditorOpen: false
     property string folderEditorId: ""
     property string folderEditorError: ""
@@ -251,6 +253,7 @@ T.Widget {
             return
         settingsStartHiddenDraft = startHidden
         settingsSyncSubtitleDraft = syncSubtitle
+        settingsFolderIconScaleDraft = folderIconScale
         settingsError = ""
         settingsColumnsField.text = "" + maxColumns
         settingsOpen = true
@@ -270,7 +273,7 @@ T.Widget {
         settingsSaving = true
         settingsError = ""
         cardDataAction = "settings"
-        if (!shortcutDiscovery.saveWidgetSettings({ startHidden: settingsStartHiddenDraft, maxColumns: columns, syncSubtitle: settingsSyncSubtitleDraft })) {
+        if (!shortcutDiscovery.saveWidgetSettings({ startHidden: settingsStartHiddenDraft, maxColumns: columns, syncSubtitle: settingsSyncSubtitleDraft, folderIconScale: settingsFolderIconScaleDraft })) {
             settingsSaving = false; cardDataAction = ""; settingsError = "SAVE IS TEMPORARILY UNAVAILABLE"
         }
     }
@@ -2125,11 +2128,12 @@ T.Widget {
             border.width: closeMouse.containsMouse ? 1 : 0
             border.color: "#99FFFFFF"
 
-            Text {
+            LucideIcon {
                 anchors.centerIn: parent
-                text: "\u00d7"
-                color: "#EFFFFFFF"
-                font.pixelSize: 22
+                width: 18
+                height: 18
+                name: "x"
+                opacity: closeMouse.containsMouse ? 1 : 0.82
             }
 
             MouseArea {
@@ -2185,6 +2189,7 @@ T.Widget {
                 folders: widget.folders
                 selectedFolderId: widget.selectedFolderId
                 hoverZoom: widget.hoverZoom
+                categoryIconScale: widget.settingsOpen ? widget.settingsFolderIconScaleDraft : widget.folderIconScale
                 refreshRunning: widget.reloadPending || shortcutDiscovery.refreshing
                 editMode: widget.editMode
                 cardDragActive: widget.cardReorderActive && !widget.cardReorderSaving
@@ -2506,11 +2511,12 @@ T.Widget {
                         border.width: editorCloseMouse.containsMouse ? 1 : 0
                         border.color: "#99FFFFFF"
 
-                        Text {
+                        LucideIcon {
                             anchors.centerIn: parent
-                            text: "\u00d7"
-                            color: "#EFFFFFFF"
-                            font.pixelSize: 18
+                            width: 16
+                            height: 16
+                            name: "x"
+                            opacity: editorCloseMouse.containsMouse ? 1 : 0.82
                         }
 
                         MouseArea {
@@ -3005,7 +3011,7 @@ T.Widget {
             Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 56, 500)
-                height: 300
+                height: 350
                 radius: 10; color: "#F01A222E"; border.width: 1; border.color: "#9EDDF7FF"
                 MouseArea { anchors.fill: parent; onClicked: {} }
                 Text { x: 18; y: 18; text: "RESTORE CARDS"; color: "#E4E8F7FF"; font.pixelSize: 11; font.bold: true; font.letterSpacing: 1.3 }
@@ -3096,7 +3102,7 @@ T.Widget {
             Rectangle {
                 anchors.centerIn: parent
                 width: Math.min(parent.width - 56, 420)
-                height: 300
+                height: 350
                 radius: 10
                 color: "#F01A222E"
                 border.width: 1
@@ -3144,13 +3150,48 @@ T.Widget {
                     MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; enabled: !widget.settingsSaving; onClicked: widget.settingsSyncSubtitleDraft = !widget.settingsSyncSubtitleDraft }
                 }
 
-                Text { x: 22; y: 246; text: widget.settingsError; color: "#FFFFB4B4"; font.pixelSize: 8 }
+                Text { x: 22; y: 190; text: "CATEGORY ICON SCALE"; color: "#A8D7E6F0"; font.pixelSize: 9; font.bold: true }
+                Text { anchors.right: parent.right; anchors.rightMargin: 26; y: 190; text: widget.settingsFolderIconScaleDraft.toFixed(2) + "x"; color: "#DDECF7FF"; font.pixelSize: 9; font.bold: true }
+                Slider {
+                    id: settingsFolderIconScaleSlider
+                    x: 22
+                    y: 205
+                    width: parent.width - 44
+                    height: 20
+                    from: 0.8
+                    to: 2
+                    stepSize: 0.05
+                    value: widget.settingsFolderIconScaleDraft
+                    enabled: !widget.settingsSaving
+                    onMoved: widget.settingsFolderIconScaleDraft = Math.round(value * 20) / 20
+                    background: Rectangle {
+                        x: settingsFolderIconScaleSlider.leftPadding
+                        y: settingsFolderIconScaleSlider.topPadding + settingsFolderIconScaleSlider.availableHeight / 2 - 2
+                        width: settingsFolderIconScaleSlider.availableWidth
+                        height: 4
+                        radius: 2
+                        color: "#24394A"
+                        Rectangle { width: settingsFolderIconScaleSlider.visualPosition * parent.width; height: parent.height; radius: parent.radius; color: "#8DDDF7" }
+                    }
+                    handle: Rectangle {
+                        x: settingsFolderIconScaleSlider.leftPadding + settingsFolderIconScaleSlider.visualPosition * (settingsFolderIconScaleSlider.availableWidth - width)
+                        y: settingsFolderIconScaleSlider.topPadding + settingsFolderIconScaleSlider.availableHeight / 2 - height / 2
+                        width: 12
+                        height: 12
+                        radius: 6
+                        color: settingsFolderIconScaleSlider.pressed ? "#FFFFFF" : "#B8F2FD"
+                        border.width: 1
+                        border.color: "#FFFFFF"
+                    }
+                }
 
-                Text { x: 22; y: 190; text: "FOLDER"; color: "#A8D7E6F0"; font.pixelSize: 9; font.bold: true }
+                Text { x: 22; y: 294; text: widget.settingsError; color: "#FFFFB4B4"; font.pixelSize: 8 }
+
+                Text { x: 22; y: 232; text: "FOLDER"; color: "#A8D7E6F0"; font.pixelSize: 9; font.bold: true }
 
                 Rectangle {
                     x: parent.width - 112
-                    y: 182
+                    y: 224
                     width: 86
                     height: 24
                     radius: 4
@@ -3159,10 +3200,10 @@ T.Widget {
                     MouseArea { id: settingsFoldersMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: widget.requestOpenPackageFolder() }
                 }
 
-                Text { x: 22; y: 222; text: "RESTORE"; color: "#A8D7E6F0"; font.pixelSize: 9; font.bold: true }
+                Text { x: 22; y: 264; text: "RESTORE"; color: "#A8D7E6F0"; font.pixelSize: 9; font.bold: true }
                 Rectangle {
                     x: parent.width - 112
-                    y: 214
+                    y: 256
                     width: 86
                     height: 24
                     radius: 4
@@ -3799,11 +3840,12 @@ T.Widget {
                     border.width: moveChoiceCloseMouse.containsMouse ? 1 : 0
                     border.color: "#B9DDF7FF"
 
-                    Text {
+                    LucideIcon {
                         anchors.centerIn: parent
-                        text: "\u00d7"
-                        color: "#EFFFFFFF"
-                        font.pixelSize: 18
+                        width: 16
+                        height: 16
+                        name: "x"
+                        opacity: moveChoiceCloseMouse.containsMouse ? 1 : 0.82
                     }
 
                     MouseArea {
@@ -4009,11 +4051,12 @@ T.Widget {
                     border.width: removalCloseMouse.containsMouse ? 1 : 0
                     border.color: removalCloseMouse.containsMouse ? "#FFFFB4B4" : "#99FFFFFF"
 
-                    Text {
+                    LucideIcon {
                         anchors.centerIn: parent
-                        text: "\u00d7"
-                        color: "#EFFFFFFF"
-                        font.pixelSize: 18
+                        width: 16
+                        height: 16
+                        name: "x"
+                        opacity: removalCloseMouse.containsMouse ? 1 : 0.82
                     }
 
                     MouseArea {
