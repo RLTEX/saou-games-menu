@@ -4,6 +4,7 @@ var DEFAULT_CONFIG = {
     startHidden: false,
     maxColumns: 3,
     syncSubtitle: true,
+    folderIconScale: 1,
     folders: [],
     items: [],
     legacyGames: []
@@ -114,6 +115,7 @@ function parseTextConfig(text, label) {
         startHidden: DEFAULT_CONFIG.startHidden,
         maxColumns: DEFAULT_CONFIG.maxColumns,
         syncSubtitle: DEFAULT_CONFIG.syncSubtitle,
+        folderIconScale: DEFAULT_CONFIG.folderIconScale,
         folders: [],
         items: [],
         legacyGames: []
@@ -147,6 +149,8 @@ function parseTextConfig(text, label) {
             source.maxColumns = parseInt(value, 10)
         } else if (key === "syncsubtitle") {
             source.syncSubtitle = parseBool(value)
+        } else if (key === "foldericonscale") {
+            source.folderIconScale = parseFloat(value)
         } else if (key === "folder") {
             currentFolder = parseTextFolder(value)
 
@@ -360,6 +364,7 @@ function normalizeConfig(source, localGames) {
         startHidden: source.startHidden === true,
         maxColumns: normalizeInt(source.maxColumns, DEFAULT_CONFIG.maxColumns, 1, 8),
         syncSubtitle: syncSubtitle,
+        folderIconScale: normalizeReal(source.folderIconScale, DEFAULT_CONFIG.folderIconScale, 0.8, 2),
         folders: folders,
         itemMetadata: itemMetadata,
         subtitleModel: buildSubtitleModel(itemMetadata, folders, syncSubtitle),
@@ -706,6 +711,16 @@ function normalizeInt(value, fallback, min, max) {
         return fallback
 
     return Math.max(min, Math.min(max, number))
+}
+
+function normalizeReal(value, fallback, min, max) {
+    var number = Number(value)
+
+    if (!isFinite(number))
+        return fallback
+
+    number = Math.max(min, Math.min(max, number))
+    return Math.round(number * 20) / 20
 }
 
 function normalizeOptionalMaxColumns(value) {

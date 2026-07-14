@@ -6,6 +6,7 @@ Item {
     property var folders: []
     property string selectedFolderId: "all"
     property real hoverZoom: 1.015
+    property real categoryIconScale: 1
     property string fallbackIcon: "folder-icons/default.png"
     property bool refreshRunning: false
     property bool editMode: false
@@ -27,23 +28,40 @@ Item {
             return ""
 
         var point = folderList.mapFromItem(null, sceneX, sceneY)
-        var rowHeight = 42 + folderColumn.spacing
         var contentY = point.y + folderList.contentY
-        var index = Math.floor((contentY - folderColumn.y) / rowHeight)
 
-        if (point.x < 0 || point.x > folderList.width || point.y < 0 || point.y > folderList.height || index < 0 || !folders || index >= folders.length)
+        if (point.x < 0 || point.x > folderList.width || point.y < 0 || point.y > folderList.height || !folders)
             return ""
 
-        var withinRow = contentY - folderColumn.y - index * rowHeight
-        var folder = folders[index]
-        return withinRow >= 0 && withinRow <= 42 && folder && folder.id !== cardDragSourceFolderId ? String(folder.id) : ""
+        var rowTop = folderColumn.y
+        for (var index = 0; index < folders.length; ++index) {
+            var folder = folders[index]
+            var rowHeight = folderRowHeight(folder)
+            if (contentY >= rowTop && contentY <= rowTop + rowHeight)
+                return folder && folder.id !== cardDragSourceFolderId ? String(folder.id) : ""
+            rowTop += rowHeight + folderColumn.spacing
+        }
+
+        return ""
+    }
+
+    function isCustomFolderIcon(folder) {
+        if (!folder)
+            return false
+
+        return resolveImage(folder.icon || fallbackIcon) !== resolveImage(fallbackIcon)
+    }
+
+    function folderRowHeight(folder) {
+        var visualSize = isCustomFolderIcon(folder) ? 40 : 28
+        return Math.max(42, Math.round(visualSize * categoryIconScale + 14))
     }
 
     function resolveImage(path) {
         var value = path ? String(path).replace(/^\s+|\s+$/g, "") : ""
 
         if (!value)
-            return "../" + fallbackIcon
+        return "../" + fallbackIcon
 
         if (/^[A-Za-z]:[\/\\]/.test(value))
             return "file:///" + value.replace(/\\/g, "/")
@@ -98,9 +116,10 @@ Item {
                                           && folder.id === sidebar.cardDragTargetFolderId
                 property string preferredIcon: sidebar.resolveImage(folder && folder.icon ? folder.icon : sidebar.fallbackIcon)
                 property string currentIcon: preferredIcon
+                property bool customIconActive: sidebar.isCustomFolderIcon(folder)
 
                 width: folderColumn.width
-                height: 42
+                height: sidebar.folderRowHeight(folder)
                 radius: 7
                 color: dropTarget ? "#36DDF6FF" : (selected ? "#1FDDF6FF" : (hovered ? "#12FFFFFF" : "transparent"))
                 border.width: dropTarget || selected ? 1 : 0
@@ -142,8 +161,8 @@ Item {
                     anchors.left: parent.left
                     anchors.leftMargin: 10
                     anchors.verticalCenter: parent.verticalCenter
-                    width: 22
-                    height: 22
+                    width: Math.round((folderButton.customIconActive ? 40 : 28) * sidebar.categoryIconScale)
+                    height: Math.round((folderButton.customIconActive ? 40 : 28) * sidebar.categoryIconScale)
 
                     Image {
                         id: folderIcon
@@ -152,6 +171,7 @@ Item {
                         source: folderButton.currentIcon
                         fillMode: Image.PreserveAspectFit
                         smooth: true
+                        mipmap: folderButton.customIconActive
                         opacity: status === Image.Ready ? 1 : 0
 
                         onStatusChanged: {
@@ -160,24 +180,11 @@ Item {
                         }
                     }
 
-                    Rectangle {
+                    LucideIcon {
                         anchors.fill: parent
-                        radius: 4
                         visible: folderIcon.status !== Image.Ready
-                        color: folderButton.selected ? "#28F2FDFF" : "#18FFFFFF"
-                        border.width: 1
-                        border.color: folderButton.selected ? "#8AF2FDFF" : "#35FFFFFF"
-                    }
-
-                    Rectangle {
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.top: parent.top
-                        anchors.topMargin: 5
-                        height: 2
-                        visible: folderIcon.status !== Image.Ready
-                        radius: 1
-                        color: folderButton.selected ? "#9AF2FDFF" : "#55FFFFFF"
+                        name: "folder"
+                        opacity: folderButton.selected ? 1 : 0.65
                     }
                 }
 
@@ -217,7 +224,13 @@ Item {
                     border.width: folderRemoveMouse.containsMouse ? 1 : 0
                     border.color: folderRemoveMouse.containsMouse ? "#FFFFB4B4" : "#66DDF6FF"
 
-                    Text { anchors.centerIn: parent; text: "−"; color: folderRemoveMouse.containsMouse ? "#FFFFD3D3" : "#B8F2FDFF"; font.pixelSize: 17; font.bold: true }
+                    LucideIcon {
+                        anchors.centerIn: parent
+                        width: 15
+                        height: 15
+                        name: "trash-2"
+                        opacity: folderRemoveMouse.containsMouse ? 1 : 0.78
+                    }
 
                     MouseArea {
                         id: folderRemoveMouse
@@ -240,7 +253,13 @@ Item {
                     border.width: folderEditMouse.containsMouse ? 1 : 0
                     border.color: "#66DDF6FF"
 
-                    Text { anchors.centerIn: parent; text: "\u270e"; color: "#B8F2FDFF"; font.pixelSize: 14; font.bold: true }
+                    LucideIcon {
+                        anchors.centerIn: parent
+                        width: 15
+                        height: 15
+                        name: "pencil"
+                        opacity: folderEditMouse.containsMouse ? 1 : 0.78
+                    }
 
                     MouseArea {
                         id: folderEditMouse
@@ -276,11 +295,13 @@ Item {
             border.width: openShortcutsMouse.containsMouse ? 1 : 0
             border.color: "#66DDF6FF"
 
-            Text {
+            LucideIcon {
                 anchors.centerIn: parent
-                text: "\u2699"
-                color: "#B8F2FDFF"
-                font.pixelSize: 17
+                width: 17
+                height: 17
+                name: "settings"
+                iconColor: "#B8F2FD"
+                opacity: openShortcutsMouse.containsMouse ? 1 : 0.78
             }
 
             MouseArea {
@@ -307,27 +328,12 @@ Item {
             border.width: visualHover || visualPressed ? 1 : 0
             border.color: "#66DDF6FF"
 
-            Canvas {
+            LucideIcon {
                 anchors.centerIn: parent
                 width: 17
                 height: 17
-
-                onPaint: {
-                    var ctx = getContext("2d")
-                    ctx.clearRect(0, 0, width, height)
-                    ctx.strokeStyle = "#B8F2FDFF"
-                    ctx.fillStyle = "#B8F2FDFF"
-                    ctx.lineWidth = 1.6
-                    ctx.beginPath()
-                    ctx.arc(8.5, 8.5, 5.2, 0.45, 5.1, false)
-                    ctx.stroke()
-                    ctx.beginPath()
-                    ctx.moveTo(12.8, 2.8)
-                    ctx.lineTo(15.4, 3.1)
-                    ctx.lineTo(14.1, 5.5)
-                    ctx.closePath()
-                    ctx.fill()
-                }
+                name: "refresh-cw"
+                iconColor: "#B8F2FD"
             }
 
             MouseArea {
@@ -356,12 +362,13 @@ Item {
             border.width: sidebar.editMode || visualHover || visualPressed ? 1 : 0
             border.color: sidebar.editMode ? "#B8F2FDFF" : "#66DDF6FF"
 
-            Text {
+            LucideIcon {
                 anchors.centerIn: parent
-                text: "\u270e"
-                color: sidebar.editMode ? "#FFFFFFFF" : "#B8F2FDFF"
-                font.pixelSize: 17
-                font.bold: true
+                width: 17
+                height: 17
+                name: "pencil"
+                iconColor: "#B8F2FD"
+                opacity: sidebar.editMode || editModeMouse.containsMouse ? 1 : 0.78
             }
 
             MouseArea {
@@ -383,7 +390,14 @@ Item {
             border.width: addFolderMouse.containsMouse ? 1 : 0
             border.color: "#66DDF6FF"
 
-            Text { anchors.centerIn: parent; text: "+"; color: "#B8F2FDFF"; font.pixelSize: 19; font.bold: true }
+            LucideIcon {
+                anchors.centerIn: parent
+                width: 18
+                height: 18
+                name: "plus"
+                iconColor: "#B8F2FD"
+                opacity: addFolderMouse.containsMouse ? 1 : 0.78
+            }
 
             MouseArea {
                 id: addFolderMouse
